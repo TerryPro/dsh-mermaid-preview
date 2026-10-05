@@ -1071,8 +1071,19 @@ window.__ModuleLoader__.load({
           const sc = previewScrollRef.current
           const svgEl = previewRef.current?.querySelector('svg')
           if (sc == null || svgEl == null) { setZoom(1); return }
-          const nat = svgNaturalSize(svgEl.getAttribute('viewBox'), svgEl.getAttribute('width'), svgEl.getAttribute('height'))
-          setZoom(fitScale(sc.clientWidth, sc.clientHeight, nat.w, nat.h, 32))
+          // Measure the REAL rendered size (undo the current zoom) rather than
+          // trusting viewBox/width attributes, so any residual inline max-width
+          // or CSS constraint can't make the fit lie about the diagram's extent.
+          const rect = svgEl.getBoundingClientRect()
+          const z = zoom || 1
+          let natW = rect.width / z
+          let natH = rect.height / z
+          if (!(natW > 0) || !(natH > 0)) {
+            const vb = svgNaturalSize(svgEl.getAttribute('viewBox'), svgEl.getAttribute('width'), svgEl.getAttribute('height'))
+            natW = vb.w
+            natH = vb.h
+          }
+          setZoom(fitScale(sc.clientWidth, sc.clientHeight, natW, natH, 32))
         },
         // Scroll the line-number column and the highlight overlay with the textarea.
         onEditorScroll() {
@@ -1432,7 +1443,7 @@ window.__ModuleLoader__.load({
 .mp-zoom-btn:hover,.mp-zoom-pct:hover{background:var(--dsw-alias-bg-layer-2,#eee)}
 .mp-canvas{padding:16px;margin:auto;flex:0 0 auto}
 .mp-svg{display:inline-block;min-width:100px}
-.mp-svg svg{max-width:none;width:auto;height:auto;display:block}
+.mp-svg svg{max-width:none !important;width:auto !important;height:auto !important;display:block}
 .mp-preview-empty{padding:24px;color:var(--dsw-alias-fg-muted,#999);font-size:12.5px}
 .mp-error{margin:12px;padding:12px 14px;border:1px solid #d1495b;border-radius:8px;background:rgba(209,73,91,.08)}
 .mp-error-title{font-weight:600;color:#b23a48;margin-bottom:6px}
