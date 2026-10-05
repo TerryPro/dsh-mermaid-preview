@@ -518,12 +518,32 @@ window.__ModuleLoader__.load({
      * React components
      * ------------------------------------------------------------------ */
 
+    /** Toolbar glyph paths (24x24 viewBox, stroke style; drawn on currentColor). */
+    const ICONS = {
+      save: ['M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M7 3v5h8V3', 'M7 21v-6h10v6'],
+      reload: ['M21 12a9 9 0 1 1-2.64-6.36', 'M21 3v6h-6'],
+      split: ['M3 4.5h18v15H3z', 'M12 4.5v15'],
+      code: ['M9 8l-4 4 4 4', 'M15 8l4 4-4 4'],
+      preview: ['M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z', 'M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z'],
+    }
+
+    /** Build an inline SVG icon element from a list of path `d` strings. */
+    function iconNode(paths, size) {
+      const px = size ?? 16
+      return h('svg', {
+        width: px, height: px, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+        strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round',
+        'aria-hidden': 'true', className: 'mp-icon',
+      }, ...paths.map((d, index) => h('path', { key: index, d })))
+    }
+
     /** A small toolbar button. */
     function Button(props) {
       return h('button', {
         className: `mp-btn${props.variant === 'primary' ? ' mp-btn--primary' : ''}${props.disabled ? ' mp-btn--disabled' : ''}`,
         type: 'button',
         title: props.title,
+        'aria-label': props.ariaLabel,
         disabled: props.disabled,
         onClick: props.onClick,
       }, props.children)
@@ -781,19 +801,15 @@ window.__ModuleLoader__.load({
       },
         // Toolbar
         h('div', { className: 'mp-toolbar' },
-          h(Button, { variant: 'primary', disabled: !dirty || readOnly || address === '', onClick: actions.save }, t('save')),
-          address !== '' ? h(Button, { disabled: loading, onClick: actions.reload }, t('reload')) : null,
+          h(Button, { variant: 'primary', disabled: !dirty || readOnly || address === '', onClick: actions.save, title: t('save'), ariaLabel: t('save') }, iconNode(ICONS.save)),
+          address !== '' ? h(Button, { disabled: loading, onClick: actions.reload, title: t('reload'), ariaLabel: t('reload') }, iconNode(ICONS.reload)) : null,
           h('span', { className: 'mp-sep' }),
           h('div', { className: 'mp-seg' },
             ['split', 'code', 'preview'].map(mode => h('button', {
               key: mode, type: 'button', className: `mp-seg-btn${view === mode ? ' mp-seg-btn--on' : ''}`,
+              title: t(mode), 'aria-label': t(mode), 'aria-pressed': view === mode,
               onClick: () => actions.setViewMode(mode),
-            }, t(mode)))),
-          h('span', { className: 'mp-sep' }),
-          previewVisible ? h('div', { className: 'mp-seg' },
-            h('button', { type: 'button', className: 'mp-seg-btn', title: t('zoomOut'), onClick: () => actions.zoom(-1) }, '−'),
-            h('button', { type: 'button', className: 'mp-seg-btn', title: t('zoomFit'), onClick: () => actions.zoom(0) }, `${Math.round(zoom * 100)}%`),
-            h('button', { type: 'button', className: 'mp-seg-btn', title: t('zoomIn'), onClick: () => actions.zoom(1) }, '+')) : null,
+            }, iconNode(ICONS[mode])))),
           h('span', { className: 'mp-spacer' }),
           h('div', { className: 'mp-menu-wrap' },
             h('button', { type: 'button', className: 'mp-seg-btn', onClick: actions.toggleMenu }, `${t('exportSvg')}/${t('exportPng')} ▾`),
@@ -846,12 +862,17 @@ window.__ModuleLoader__.load({
                 }))) : null,
             (editorVisible && previewVisible) ? h('div', { className: 'mp-splitter', onPointerDown: actions.startSplitDrag }) : null,
             previewVisible ? h('div', { className: 'mp-preview', style: view === 'split' ? { flex: `0 1 ${(1 - splitRatio) * 100}%` } : undefined },
-              h('div', { ref: previewRef, className: 'mp-canvas', style: { transform: `scale(${zoom})` } },
-                notFound ? h('div', { className: 'mp-preview-empty' }, t('notFound'))
-                  : loadError !== '' ? h('div', { className: 'mp-error' }, h('div', { className: 'mp-error-title' }, t('readFailed')), h('pre', { className: 'mp-error-body' }, loadError))
-                    : renderError !== '' ? h('div', { className: 'mp-error' }, h('div', { className: 'mp-error-title' }, t('renderError')), h('pre', { className: 'mp-error-body' }, renderError))
-                      : hasSvg ? h('div', { className: 'mp-svg', dangerouslySetInnerHTML: { __html: svg } })
-                        : h('div', { className: 'mp-preview-empty' }, t('emptyPreview')))) : null))
+              h('div', { className: 'mp-preview-scroll' },
+                h('div', { ref: previewRef, className: 'mp-canvas', style: { transform: `scale(${zoom})` } },
+                  notFound ? h('div', { className: 'mp-preview-empty' }, t('notFound'))
+                    : loadError !== '' ? h('div', { className: 'mp-error' }, h('div', { className: 'mp-error-title' }, t('readFailed')), h('pre', { className: 'mp-error-body' }, loadError))
+                      : renderError !== '' ? h('div', { className: 'mp-error' }, h('div', { className: 'mp-error-title' }, t('renderError')), h('pre', { className: 'mp-error-body' }, renderError))
+                        : hasSvg ? h('div', { className: 'mp-svg', dangerouslySetInnerHTML: { __html: svg } })
+                          : h('div', { className: 'mp-preview-empty' }, t('emptyPreview')))),
+              h('div', { className: 'mp-zoombar' },
+                h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomOut'), onClick: () => actions.zoom(-1) }, '−'),
+                h('button', { type: 'button', className: 'mp-zoom-pct', title: t('zoomFit'), onClick: () => actions.zoom(0) }, `${Math.round(zoom * 100)}%`),
+                h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomIn'), onClick: () => actions.zoom(1) }, '+'))) : null))
     }
 
     /* ------------------------------------------------------------------ *
@@ -862,14 +883,15 @@ window.__ModuleLoader__.load({
 .mp-shell{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-fg,inherit);font-size:13px;box-sizing:border-box}
 *{box-sizing:border-box}
 .mp-toolbar{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border,#ddd);flex-wrap:wrap}
-.mp-btn{border:1px solid var(--dsw-alias-border,#c8c8c8);background:var(--dsw-alias-bg-layer-1,#fff);color:inherit;border-radius:6px;padding:3px 9px;cursor:pointer;font-size:12.5px;line-height:1.4}
+.mp-btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--dsw-alias-border,#c8c8c8);background:var(--dsw-alias-bg-layer-1,#fff);color:inherit;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12.5px;line-height:1.4}
 .mp-btn:hover{background:var(--dsw-alias-bg-layer-2,#f2f2f2)}
 .mp-btn--primary{font-weight:600}
 .mp-btn--disabled{opacity:.45;cursor:default}
+.mp-icon{display:block}
 .mp-sep{width:1px;height:18px;background:var(--dsw-alias-border,#ddd);margin:0 2px}
 .mp-spacer{flex:1}
 .mp-seg{display:inline-flex;border:1px solid var(--dsw-alias-border,#c8c8c8);border-radius:6px;overflow:hidden}
-.mp-seg-btn{border:none;background:transparent;color:inherit;padding:3px 8px;cursor:pointer;font-size:12px}
+.mp-seg-btn{display:inline-flex;align-items:center;justify-content:center;border:none;background:transparent;color:inherit;padding:4px 9px;cursor:pointer;font-size:12px}
 .mp-seg-btn--on{background:var(--dsw-alias-accent,#4a7dff);color:#fff}
 .mp-menu-wrap{position:relative}
 .mp-menu{position:absolute;right:0;top:100%;margin-top:4px;background:var(--dsw-alias-bg-layer-1,#fff);border:1px solid var(--dsw-alias-border,#ccc);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);z-index:30;min-width:140px;padding:4px}
@@ -902,9 +924,14 @@ window.__ModuleLoader__.load({
 [data-mp-theme=dark] .tk-str{color:#ce9178}
 [data-mp-theme=dark] .tk-arw{color:#c586c0}
 [data-mp-theme=dark] .tk-brk{color:#d7ba7d}
-.mp-splitter{flex:0 0 6px;cursor:col-resize;background:var(--dsw-alias-border,#ddd);opacity:.55}
+.mp-splitter{flex:0 0 3px;cursor:col-resize;background:var(--dsw-alias-border,#ddd);opacity:.5}
 .mp-splitter:hover{opacity:1;background:var(--dsw-alias-accent,#4a7dff)}
-.mp-preview{flex:1 1 50%;min-width:0;overflow:auto;position:relative;background:var(--dsw-alias-bg-layer-0,#fafafa)}
+.mp-preview{flex:1 1 50%;min-width:0;overflow:hidden;position:relative;background:var(--dsw-alias-bg-layer-0,#fafafa)}
+.mp-preview-scroll{position:absolute;inset:0;overflow:auto}
+.mp-zoombar{position:absolute;right:10px;bottom:10px;z-index:6;display:flex;align-items:center;gap:2px;padding:2px;border-radius:10px;background:var(--dsw-alias-bg-layer-1,#fff);border:1px solid var(--dsw-alias-border,#ddd);box-shadow:0 2px 8px rgba(0,0,0,.14)}
+.mp-zoom-btn,.mp-zoom-pct{border:none;background:transparent;color:inherit;cursor:pointer;border-radius:7px;font-size:13px;line-height:1;padding:4px 7px}
+.mp-zoom-pct{font-size:11.5px;min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
+.mp-zoom-btn:hover,.mp-zoom-pct:hover{background:var(--dsw-alias-bg-layer-2,#eee)}
 .mp-canvas{transform-origin:top left;padding:16px;min-width:100%;display:inline-block}
 .mp-svg{display:inline-block;min-width:100px}
 .mp-svg svg{max-width:none}
