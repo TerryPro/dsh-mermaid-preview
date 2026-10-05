@@ -217,3 +217,29 @@ test('indentBlock indents/outdents whole lines and re-selects the block', () => 
   assert.equal(r.value, 'x\ny\nz')
   assert.deepEqual({ start: r.selStart, end: r.selEnd }, { start: 2, end: 3 })
 })
+
+test('clampZoom bounds and rounds the factor', () => {
+  const { clampZoom } = load().__test__
+  assert.equal(clampZoom(1.004), 1)
+  assert.equal(clampZoom(0.01), 0.25)
+  assert.equal(clampZoom(99), 6)
+  assert.equal(clampZoom(Number.NaN), 1)
+})
+
+test('svgNaturalSize prefers the viewBox, falls back to width/height', () => {
+  const { svgNaturalSize } = load().__test__
+  assert.deepEqual(svgNaturalSize('0 0 640 480', null, null), { w: 640, h: 480 })
+  assert.deepEqual(svgNaturalSize('', '200', '100'), { w: 200, h: 100 })
+  assert.deepEqual(svgNaturalSize('garbage', '', ''), { w: 0, h: 0 })
+})
+
+test('fitScale fits a diagram into the box, clamped and guarded', () => {
+  const { fitScale } = load().__test__
+  // 1000x500 diagram into 500x500 box (minus 40 pad) → limited by width: 460/1000
+  assert.equal(fitScale(500, 500, 1000, 500, 40), 0.46)
+  // a tiny diagram would over-zoom; the clamp caps it at 6
+  assert.equal(fitScale(500, 500, 10, 10, 40), 6)
+  // unmeasurable inputs fall back to 1 (no fit)
+  assert.equal(fitScale(500, 500, 0, 100, 40), 1)
+  assert.equal(fitScale(20, 500, 100, 100, 40), 1)
+})

@@ -144,6 +144,7 @@ window.__ModuleLoader__.load({
         exitFullscreen: '退出全屏',
         syncScroll: '同步滚动',
         discardDraft: '丢弃草稿',
+        zoomReset: '重置为 100%',
         line: '行',
         close: '关闭',
       },
@@ -203,6 +204,7 @@ window.__ModuleLoader__.load({
         exitFullscreen: 'Exit fullscreen',
         syncScroll: 'Sync scroll',
         discardDraft: 'Discard draft',
+        zoomReset: 'Reset to 100%',
         line: 'line',
         close: 'Close',
       },
@@ -522,6 +524,41 @@ window.__ModuleLoader__.load({
       return out
     }
 
+    /** Clamp a zoom factor to the usable band, rounded to 2dp. */
+    function clampZoom(z) {
+      if (typeof z !== 'number' || !Number.isFinite(z)) return 1
+      return Math.min(6, Math.max(0.25, Math.round(z * 100) / 100))
+    }
+
+    /**
+     * A rendered SVG's intrinsic size from its `viewBox` (preferred) or width/
+     * height attributes — the numbers a fit-to-view needs, read before any CSS
+     * scaling is applied. Missing/garbage values fall back to 0 (→ no fit).
+     * @returns `{ w, h }`.
+     */
+    function svgNaturalSize(viewBox, width, height) {
+      const parts = String(viewBox ?? '').trim().split(/[\s,]+/u).map(Number)
+      if (parts.length === 4 && parts.every(Number.isFinite) && parts[2] > 0 && parts[3] > 0) {
+        return { w: parts[2], h: parts[3] }
+      }
+      const w = Number.parseFloat(width) || 0
+      const h = Number.parseFloat(height) || 0
+      return { w, h }
+    }
+
+    /**
+     * The zoom that fits a natural-sized diagram into an available box, minus
+     * padding, clamped to the usable band. Falls back to 1 when anything is
+     * unmeasurable (a zero-size or not-yet-laid-out diagram).
+     * @returns a clamped zoom factor.
+     */
+    function fitScale(availW, availH, natW, natH, pad) {
+      const w = availW - pad
+      const h = availH - pad
+      if (!(natW > 0) || !(natH > 0) || w <= 0 || h <= 0) return 1
+      return clampZoom(Math.min(w / natW, h / natH))
+    }
+
     /** Escape a run of text for the highlight overlay's innerHTML. */
     function escapeHtml(str) {
       return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -747,6 +784,7 @@ window.__ModuleLoader__.load({
       export: ['M12 3v12', 'M7 11l5 5 5-5', 'M5 21h14'],
       templates: ['M4 4h7v7H4z', 'M13 4h7v7h-7z', 'M4 13h7v7H4z', 'M13 13h7v7h-7z'],
       fullscreen: ['M4 9V4h5', 'M15 4h5v5', 'M20 15v5h-5', 'M9 20H4v-5'],
+      fit: ['M4 4h16v16H4z', 'M9 9h6v6H9z'],
       close: ['M6 6l12 12', 'M18 6L6 18'],
       link: ['M9 12h6', 'M8.5 8H7a4 4 0 0 0 0 8h1.5', 'M15.5 8H17a4 4 0 0 1 0 8h-1.5'],
     }
@@ -809,6 +847,7 @@ window.__ModuleLoader__.load({
       const [syncScroll, setSyncScroll] = React.useState(false)
       const [rendering, setRendering] = React.useState(false)
       const [composing, setComposing] = React.useState(false)
+      const [panning, setPanning] = React.useState(false)
 
       const renderTimer = React.useRef(null)
       const previewRef = React.useRef(null)
@@ -818,6 +857,8 @@ window.__ModuleLoader__.load({
       const hlRef = React.useRef(null)      // the highlight overlay <pre>
       const previewScrollRef = React.useRef(null) // the preview's scroll container
       const pendingSel = React.useRef(null)       // caret/selection to restore after a programmatic edit
+      const didFitRef = React.useRef(false)       // auto-fit once per opened file
+      const panRef = React.useRef(null)           // { x, y, scrollLeft, scrollTop } while dragging
       const workspaceRef = React.useRef(null)
       const loadedMtime = React.useRef(null)      // mtime the current baseline was read at
       const dismissedMtime = React.useRef(null)   // an external change the user chose to keep over
@@ -881,6 +922,7 @@ window.__ModuleLoader__.load({
         if (address === '') { setText(''); setBaseline(''); setNotFound(false); return undefined }
         setReadOnly(isAbsoluteAddress(address))
         setSavedAt('')
+        didFitRef.current = false
         void pullFromDisk({ applyDraft: true })
         return undefined
       }, [address, pullFromDisk])
@@ -993,8 +1035,21 @@ window.__ModuleLoader__.load({
         save() {
           if (address === '' || readOnly) return
           setLoading(true)
-          postJson(API.write, { address, text })
+          // Re-check the disk mtime first: an edit that landed after the last poll
+          // (or while the tab was hidden) must not be silently overwritten. Only
+          // write once the change is acknowledged (dismissed) or absent.
+          postJson(API.stat, { address })
+            .then((st) => {
+              const disk = st?.ok ? st.mtime : null
+              if (disk !== null && loadedMtime.current !== null && disk !== loadedMtime.current && dismissedMtime.current !== disk) {
+                setExternalMtime(disk)
+                setSavedAt(`⚠ ${t('externalConflict')}`)
+                return null
+              }
+              return postJson(API.write, { address, text })
+            })
             .then((reply) => {
+              if (reply == null) return
               if (reply?.ok) {
                 setBaseline(text)
                 if (typeof reply.mtime === 'number') loadedMtime.current = reply.mtime
@@ -1009,7 +1064,16 @@ window.__ModuleLoader__.load({
         changeText(value) { setText(value); setSavedAt('') },
         insertTemplate(code) { setText(code); setSavedAt('') },
         setViewMode(mode) { setView(mode) },
-        zoom(step) { setZoom(z => (step === 0 ? 1 : Math.min(6, Math.max(0.25, Math.round((z + step * 0.25) * 100) / 100)))) },
+        zoom(step) { setZoom(z => clampZoom(z + step * 0.25)) },
+        resetZoom() { setZoom(1) },
+        // Fit the rendered diagram into the visible preview box.
+        fitToView() {
+          const sc = previewScrollRef.current
+          const svgEl = previewRef.current?.querySelector('svg')
+          if (sc == null || svgEl == null) { setZoom(1); return }
+          const nat = svgNaturalSize(svgEl.getAttribute('viewBox'), svgEl.getAttribute('width'), svgEl.getAttribute('height'))
+          setZoom(fitScale(sc.clientWidth, sc.clientHeight, nat.w, nat.h, 32))
+        },
         // Scroll the line-number column and the highlight overlay with the textarea.
         onEditorScroll() {
           const ta = taRef.current
@@ -1084,6 +1148,27 @@ window.__ModuleLoader__.load({
       const highlighted = highlightMermaid(shownText)
       const diagramType = diagramTypeOf(shownText)
       const errLine = extractErrorLine(renderError)
+
+      /** Fit-to-view once, when a diagram first renders for this file. */
+      React.useEffect(() => {
+        if (hasSvg && previewVisible && !didFitRef.current) {
+          didFitRef.current = true
+          actions.fitToView()
+        }
+      })
+
+      /** Ctrl/⌘ + wheel zooms the canvas; a non-passive listener so it can cancel page scroll. */
+      React.useEffect(() => {
+        const sc = previewScrollRef.current
+        if (sc == null) return undefined
+        const onWheel = (e) => {
+          if (!e.ctrlKey && !e.metaKey) return
+          e.preventDefault()
+          setZoom(z => clampZoom(z + (e.deltaY < 0 ? 0.25 : -0.25)))
+        }
+        sc.addEventListener('wheel', onWheel, { passive: false })
+        return () => sc.removeEventListener('wheel', onWheel)
+      }, [previewVisible])
 
       return h('div', {
         className: 'mp-shell',
@@ -1212,7 +1297,27 @@ window.__ModuleLoader__.load({
                 }))) : null,
             (editorVisible && previewVisible) ? h('div', { className: 'mp-splitter', onPointerDown: actions.startSplitDrag }) : null,
             previewVisible ? h('div', { className: 'mp-preview', style: view === 'split' ? { flex: `0 1 ${(1 - splitRatio) * 100}%` } : undefined },
-              h('div', { className: 'mp-preview-scroll', ref: previewScrollRef },
+              h('div', {
+                className: `mp-preview-scroll${panning ? ' mp-preview-scroll--panning' : ''}`,
+                ref: previewScrollRef,
+                onDoubleClick: () => actions.fitToView(),
+                onPointerDown: (e) => {
+                  const sc = previewScrollRef.current
+                  if (sc == null || e.button !== 0) return
+                  panRef.current = { x: e.clientX, y: e.clientY, sl: sc.scrollLeft, st: sc.scrollTop }
+                  sc.setPointerCapture?.(e.pointerId)
+                  setPanning(true)
+                },
+                onPointerMove: (e) => {
+                  const sc = previewScrollRef.current
+                  const p = panRef.current
+                  if (sc == null || p == null) return
+                  sc.scrollLeft = p.sl - (e.clientX - p.x)
+                  sc.scrollTop = p.st - (e.clientY - p.y)
+                },
+                onPointerUp: (e) => { previewScrollRef.current?.releasePointerCapture?.(e.pointerId); panRef.current = null; setPanning(false) },
+                onPointerCancel: () => { panRef.current = null; setPanning(false) },
+              },
                 h('div', { ref: previewRef, className: 'mp-canvas', style: { transform: `scale(${zoom})` } },
                   notFound ? h('div', { className: 'mp-preview-empty' }, t('notFound'))
                     : loadError !== '' ? h('div', { className: 'mp-error' }, h('div', { className: 'mp-error-title' }, t('readFailed')), h('pre', { className: 'mp-error-body' }, loadError))
@@ -1221,9 +1326,10 @@ window.__ModuleLoader__.load({
                           : h('div', { className: 'mp-preview-empty' }, t('emptyPreview')))),
               rendering ? h('div', { className: 'mp-busy', 'aria-hidden': 'true' }, h('span', { className: 'mp-spinner' })) : null,
               h('div', { className: 'mp-zoombar' },
-                h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomOut'), onClick: () => actions.zoom(-1) }, '−'),
-                h('button', { type: 'button', className: 'mp-zoom-pct', title: t('zoomFit'), onClick: () => actions.zoom(0) }, `${Math.round(zoom * 100)}%`),
-                h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomIn'), onClick: () => actions.zoom(1) }, '+'))) : null),
+                h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomOut'), 'aria-label': t('zoomOut'), onClick: () => actions.zoom(-1) }, '−'),
+                h('button', { type: 'button', className: 'mp-zoom-pct', title: t('zoomReset'), 'aria-label': t('zoomReset'), onClick: actions.resetZoom }, `${Math.round(zoom * 100)}%`),
+                h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomFit'), 'aria-label': t('zoomFit'), onClick: actions.fitToView }, iconNode(ICONS.fit, 14)),
+                h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomIn'), 'aria-label': t('zoomIn'), onClick: () => actions.zoom(1) }, '+'))) : null),
         // Fullscreen preview overlay (Escape or the close button leaves it).
         fullscreen && hasSvg ? h('div', { className: 'mp-fs' },
           h('div', { className: 'mp-fs-head' },
@@ -1231,7 +1337,8 @@ window.__ModuleLoader__.load({
             diagramType !== '' ? h('span', { className: 'mp-badge' }, diagramType) : null,
             h('span', { className: 'mp-spacer' }),
             h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomOut'), onClick: () => actions.zoom(-1) }, '−'),
-            h('button', { type: 'button', className: 'mp-zoom-pct', title: t('zoomFit'), onClick: () => actions.zoom(0) }, `${Math.round(zoom * 100)}%`),
+            h('button', { type: 'button', className: 'mp-zoom-pct', title: t('zoomReset'), onClick: actions.resetZoom }, `${Math.round(zoom * 100)}%`),
+            h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomFit'), 'aria-label': t('zoomFit'), onClick: actions.fitToView }, iconNode(ICONS.fit, 14)),
             h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomIn'), onClick: () => actions.zoom(1) }, '+'),
             h('button', { type: 'button', className: 'mp-zoom-btn', title: t('close'), 'aria-label': t('close'), onClick: actions.toggleFullscreen }, iconNode(ICONS.close))),
           h('div', { className: 'mp-fs-body' },
@@ -1314,7 +1421,8 @@ window.__ModuleLoader__.load({
 .mp-splitter{flex:0 0 3px;cursor:col-resize;background:var(--dsw-alias-border,#ddd);opacity:.5}
 .mp-splitter:hover{opacity:1;background:var(--dsw-alias-accent,#4a7dff)}
 .mp-preview{flex:1 1 50%;min-width:0;overflow:hidden;position:relative;background:var(--dsw-alias-bg-layer-0,#fafafa)}
-.mp-preview-scroll{position:absolute;inset:0;overflow:auto}
+.mp-preview-scroll{position:absolute;inset:0;overflow:auto;user-select:none;cursor:grab}
+.mp-preview-scroll--panning{cursor:grabbing}
 .mp-zoombar{position:absolute;right:10px;bottom:10px;z-index:6;display:flex;align-items:center;gap:2px;padding:2px;border-radius:10px;background:var(--dsw-alias-bg-layer-1,#fff);border:1px solid var(--dsw-alias-border,#ddd);box-shadow:0 2px 8px rgba(0,0,0,.14)}
 .mp-zoom-btn,.mp-zoom-pct{border:none;background:transparent;color:inherit;cursor:pointer;border-radius:7px;font-size:13px;line-height:1;padding:4px 7px}
 .mp-zoom-pct{font-size:11.5px;min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
@@ -1416,6 +1524,7 @@ window.__ModuleLoader__.load({
       escapeHtml, highlightMermaid, lineNumbersText, clampRatio,
       resolveTheme, mermaidFence, resolvePngFill, THEME_CHOICES,
       diagramTypeOf, extractErrorLine, closingFor, indentBlock,
+      clampZoom, svgNaturalSize, fitScale,
     }
     return module.exports
   },
