@@ -1432,7 +1432,7 @@ window.__ModuleLoader__.load({
 .mp-zoom-btn:hover,.mp-zoom-pct:hover{background:var(--dsw-alias-bg-layer-2,#eee)}
 .mp-canvas{padding:16px;margin:auto;flex:0 0 auto}
 .mp-svg{display:inline-block;min-width:100px}
-.mp-svg svg{max-width:none}
+.mp-svg svg{max-width:none;width:auto;height:auto;display:block}
 .mp-preview-empty{padding:24px;color:var(--dsw-alias-fg-muted,#999);font-size:12.5px}
 .mp-error{margin:12px;padding:12px 14px;border:1px solid #d1495b;border-radius:8px;background:rgba(209,73,91,.08)}
 .mp-error-title{font-weight:600;color:#b23a48;margin-bottom:6px}
