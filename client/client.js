@@ -547,16 +547,16 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The zoom that fits a natural-sized diagram into an available box, minus
-     * padding, clamped to the usable band. Falls back to 1 when anything is
-     * unmeasurable (a zero-size or not-yet-laid-out diagram).
+     * The zoom that fills the available width (minus padding) with the diagram,
+     * clamped to the usable band. Width-fit — not contain — so a diagram always
+     * spans the pane and looks full; one taller than the pane simply scrolls
+     * vertically. Falls back to 1 when the width is unmeasurable.
      * @returns a clamped zoom factor.
      */
     function fitScale(availW, availH, natW, natH, pad) {
       const w = availW - pad
-      const h = availH - pad
-      if (!(natW > 0) || !(natH > 0) || w <= 0 || h <= 0) return 1
-      return clampZoom(Math.min(w / natW, h / natH))
+      if (!(natW > 0) || w <= 0) return 1
+      return clampZoom(w / natW)
     }
 
     /** Escape a run of text for the highlight overlay's innerHTML. */
