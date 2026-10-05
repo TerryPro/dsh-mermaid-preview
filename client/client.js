@@ -140,6 +140,12 @@ window.__ModuleLoader__.load({
         themeForest: '森林',
         themeNeutral: '中性',
         themeBase: '基础',
+        fullscreen: '全屏预览',
+        exitFullscreen: '退出全屏',
+        syncScroll: '同步滚动',
+        discardDraft: '丢弃草稿',
+        line: '行',
+        close: '关闭',
       },
       en: {
         loading: 'Loading…',
@@ -193,6 +199,12 @@ window.__ModuleLoader__.load({
         themeForest: 'Forest',
         themeNeutral: 'Neutral',
         themeBase: 'Base',
+        fullscreen: 'Fullscreen preview',
+        exitFullscreen: 'Exit fullscreen',
+        syncScroll: 'Sync scroll',
+        discardDraft: 'Discard draft',
+        line: 'line',
+        close: 'Close',
       },
     }
 
@@ -437,6 +449,43 @@ window.__ModuleLoader__.load({
       return dark ? '#1e1e1e' : '#ffffff'
     }
 
+    /**
+     * Detect a diagram's declared type from its first content line, skipping
+     * blank lines, `%%` comments, `%%{init}` directives and `---` front-matter.
+     * @param code - the Mermaid source.
+     * @returns the type keyword (e.g. 'flowchart'), or '' when none is recognised.
+     */
+    function diagramTypeOf(code) {
+      const lines = String(code ?? '').split('\n')
+      let i = 0
+      // Skip leading blanks and `%%` comment/directive lines.
+      while (i < lines.length && (lines[i].trim() === '' || lines[i].trim().startsWith('%%'))) i += 1
+      // A leading YAML front-matter block: consume it whole through its closing '---'.
+      if (i < lines.length && lines[i].trim() === '---') {
+        i += 1
+        while (i < lines.length && lines[i].trim() !== '---') i += 1
+        i += 1
+      }
+      for (; i < lines.length; i += 1) {
+        const line = lines[i].trim()
+        if (line === '' || line.startsWith('%%')) continue
+        const match = line.match(/^(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|requirementDiagram|erDiagram|journey|gantt|pie|quadrantChart|xyChart|sankey|mindmap|timeline|packet|architecture|gitGraph)\b/u)
+        return match === null ? '' : match[1]
+      }
+      return ''
+    }
+
+    /**
+     * Pull a line number out of a Mermaid parse error, when it names one.
+     * @param message - the render error text.
+     * @returns the 1-based line number, or null when the message carries none.
+     */
+    function extractErrorLine(message) {
+      const text = String(message ?? '')
+      const m = text.match(/line\s+(\d+)/iu) ?? text.match(/\bL(\d+)\b/u)
+      return m === null ? null : Number(m[1])
+    }
+
     /** A column of `1..count` line numbers as one newline-joined string. */
     function lineNumbersText(count) {
       let out = '1'
@@ -666,6 +715,11 @@ window.__ModuleLoader__.load({
       split: ['M3 4.5h18v15H3z', 'M12 4.5v15'],
       code: ['M9 8l-4 4 4 4', 'M15 8l4 4-4 4'],
       preview: ['M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z', 'M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z'],
+      export: ['M12 3v12', 'M7 11l5 5 5-5', 'M5 21h14'],
+      templates: ['M4 4h7v7H4z', 'M13 4h7v7h-7z', 'M4 13h7v7H4z', 'M13 13h7v7h-7z'],
+      fullscreen: ['M4 9V4h5', 'M15 4h5v5', 'M20 15v5h-5', 'M9 20H4v-5'],
+      close: ['M6 6l12 12', 'M18 6L6 18'],
+      link: ['M9 12h6', 'M8.5 8H7a4 4 0 0 0 0 8h1.5', 'M15.5 8H17a4 4 0 0 1 0 8h-1.5'],
     }
 
     /** Build an inline SVG icon element from a list of path `d` strings. */
@@ -673,7 +727,7 @@ window.__ModuleLoader__.load({
       const px = size ?? 16
       return h('svg', {
         width: px, height: px, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
-        strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round',
+        strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round',
         'aria-hidden': 'true', className: 'mp-icon',
       }, ...paths.map((d, index) => h('path', { key: index, d })))
     }
@@ -722,6 +776,8 @@ window.__ModuleLoader__.load({
       const [theme, setTheme] = React.useState(readThemeChoice)
       const [pngScale, setPngScale] = React.useState(2)
       const [pngBg, setPngBg] = React.useState('theme')
+      const [fullscreen, setFullscreen] = React.useState(false)
+      const [syncScroll, setSyncScroll] = React.useState(false)
 
       const renderTimer = React.useRef(null)
       const previewRef = React.useRef(null)
@@ -729,6 +785,7 @@ window.__ModuleLoader__.load({
       const taRef = React.useRef(null)      // the source textarea
       const gutterRef = React.useRef(null)  // the line-number column
       const hlRef = React.useRef(null)      // the highlight overlay <pre>
+      const previewScrollRef = React.useRef(null) // the preview's scroll container
       const workspaceRef = React.useRef(null)
       const loadedMtime = React.useRef(null)      // mtime the current baseline was read at
       const dismissedMtime = React.useRef(null)   // an external change the user chose to keep over
@@ -854,6 +911,14 @@ window.__ModuleLoader__.load({
         return () => observer?.disconnect()
       }, [])
 
+      /** Escape leaves fullscreen while it is open. */
+      React.useEffect(() => {
+        if (!fullscreen || typeof window === 'undefined') return undefined
+        const onKey = (e) => { if (e.key === 'Escape') setFullscreen(false) }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+      }, [fullscreen])
+
       /* ---------------- actions ---------------- */
 
       const actions = {
@@ -894,6 +959,13 @@ window.__ModuleLoader__.load({
           if (ta == null) return
           if (gutterRef.current !== null) gutterRef.current.scrollTop = ta.scrollTop
           if (hlRef.current !== null) { hlRef.current.scrollTop = ta.scrollTop; hlRef.current.scrollLeft = ta.scrollLeft }
+          // Optional proportional editor→preview scroll mirror (opt-in toggle).
+          if (syncScroll && previewScrollRef.current !== null) {
+            const ps = previewScrollRef.current
+            const taMax = ta.scrollHeight - ta.clientHeight
+            const psMax = ps.scrollHeight - ps.clientHeight
+            if (taMax > 0 && psMax > 0) ps.scrollTop = (ta.scrollTop / taMax) * psMax
+          }
         },
         // Drag the split handle: map the pointer's x to a ratio of the workspace width.
         startSplitDrag(e) {
@@ -942,6 +1014,10 @@ window.__ModuleLoader__.load({
           copyText(mermaidFence(text)).then((ok) => setSavedAt(ok ? `✓ ${t('copied')}` : `⚠ ${t('copyFailed')}`)).catch(() => setSavedAt(`⚠ ${t('copyFailed')}`))
         },
         setThemeChoice(choice) { setTheme(choice); applyThemeChoice(choice); scheduleRender(text) },
+        toggleFullscreen() { setFullscreen(v => !v) },
+        toggleSyncScroll() { setSyncScroll(v => !v) },
+        // Drop the persisted draft and go back to the on-disk contents.
+        discardDraft() { void pullFromDisk({ applyDraft: false }).then(() => { clearDraft(address); setDraftRestored(false); setSavedAt(t('reloaded')) }) },
       }
 
       const displayName = fileName || basenameOfAddress(address) || t('noAddress')
@@ -949,6 +1025,8 @@ window.__ModuleLoader__.load({
       const shownText = notFound ? '' : text
       const lineCount = shownText.length === 0 ? 1 : shownText.split('\n').length
       const highlighted = highlightMermaid(shownText)
+      const diagramType = diagramTypeOf(shownText)
+      const errLine = extractErrorLine(renderError)
 
       return h('div', {
         className: 'mp-shell',
@@ -971,13 +1049,16 @@ window.__ModuleLoader__.load({
               title: t(mode), 'aria-label': t(mode), 'aria-pressed': view === mode,
               onClick: () => actions.setViewMode(mode),
             }, iconNode(ICONS[mode])))),
+          h('span', { className: 'mp-sep' }),
+          h(Button, { disabled: !hasSvg, onClick: actions.toggleFullscreen, title: t('fullscreen'), ariaLabel: t('fullscreen') }, iconNode(ICONS.fullscreen)),
+          h('button', { type: 'button', className: `mp-seg-btn${syncScroll ? ' mp-seg-btn--on' : ''}`, title: t('syncScroll'), 'aria-label': t('syncScroll'), 'aria-pressed': syncScroll, onClick: actions.toggleSyncScroll }, iconNode(ICONS.link)),
           h('span', { className: 'mp-spacer' }),
           h('select', {
-            className: 'mp-select', title: t('theme'), 'aria-label': t('theme'),
+            className: 'mp-select mp-select--ghost', title: t('theme'), 'aria-label': t('theme'),
             value: theme, onChange: (e) => actions.setThemeChoice(e.target.value),
           }, THEME_CHOICES.map(choice => h('option', { key: choice, value: choice }, t(`theme${choice[0].toUpperCase()}${choice.slice(1)}`)))),
           h('div', { className: 'mp-menu-wrap' },
-            h('button', { type: 'button', className: 'mp-seg-btn', onClick: actions.toggleMenu, 'aria-expanded': menuOpen }, `${t('export')} ▾`),
+            h('button', { type: 'button', className: 'mp-seg-btn', onClick: actions.toggleMenu, 'aria-expanded': menuOpen, title: t('export'), 'aria-label': t('export') }, iconNode(ICONS.export), h('span', { className: 'mp-caret' }, '▾')),
             menuOpen ? h('div', { className: 'mp-menu mp-menu--wide' },
               h('div', { className: 'mp-menu-group' }, t('copyGroup')),
               h('button', { type: 'button', className: 'mp-menu-item', disabled: !hasSvg, onClick: () => { actions.copySvg(); actions.toggleMenu() } }, t('copySvg')),
@@ -997,7 +1078,7 @@ window.__ModuleLoader__.load({
                     h('option', { value: 'white' }, t('bgWhite')),
                     h('option', { value: 'transparent' }, t('bgTransparent')))))) : null),
           h('div', { className: 'mp-menu-wrap' },
-            h('button', { type: 'button', className: 'mp-seg-btn', onClick: actions.toggleTemplates }, `${t('templates')} ▾`),
+            h('button', { type: 'button', className: 'mp-seg-btn', onClick: actions.toggleTemplates, title: t('templates'), 'aria-label': t('templates') }, iconNode(ICONS.templates), h('span', { className: 'mp-caret' }, '▾')),
             templatesOpen && !readOnly ? h('div', { className: 'mp-menu' },
               TEMPLATES.map(tpl => h('button', {
                 key: tpl.id, type: 'button', className: 'mp-menu-item',
@@ -1007,8 +1088,11 @@ window.__ModuleLoader__.load({
         // Status line
         h('div', { className: 'mp-status' },
           h('span', { className: 'mp-status-name' }, displayName),
+          diagramType !== '' ? h('span', { className: 'mp-badge' }, diagramType) : null,
           dirty ? h('span', { className: 'mp-status-dirty' }, `● ${t('dirty')}`) : null,
-          draftRestored ? h('span', { className: 'mp-status-runtime' }, t('draftRestored')) : null,
+          draftRestored ? h('span', { className: 'mp-status-draft' },
+            t('draftRestored'),
+            h('button', { type: 'button', className: 'mp-discard', onClick: actions.discardDraft }, t('discardDraft'))) : null,
           readOnly ? h('span', { className: 'mp-status-runtime mp-status-runtime--bad' }, t('readOnly')) : null,
           loading ? h('span', { className: 'mp-status-msg' }, t('loading')) : null,
           savedAt !== '' ? h('span', { className: 'mp-status-msg' }, savedAt) : null,
@@ -1042,17 +1126,29 @@ window.__ModuleLoader__.load({
                 }))) : null,
             (editorVisible && previewVisible) ? h('div', { className: 'mp-splitter', onPointerDown: actions.startSplitDrag }) : null,
             previewVisible ? h('div', { className: 'mp-preview', style: view === 'split' ? { flex: `0 1 ${(1 - splitRatio) * 100}%` } : undefined },
-              h('div', { className: 'mp-preview-scroll' },
+              h('div', { className: 'mp-preview-scroll', ref: previewScrollRef },
                 h('div', { ref: previewRef, className: 'mp-canvas', style: { transform: `scale(${zoom})` } },
                   notFound ? h('div', { className: 'mp-preview-empty' }, t('notFound'))
                     : loadError !== '' ? h('div', { className: 'mp-error' }, h('div', { className: 'mp-error-title' }, t('readFailed')), h('pre', { className: 'mp-error-body' }, loadError))
-                      : renderError !== '' ? h('div', { className: 'mp-error' }, h('div', { className: 'mp-error-title' }, t('renderError')), h('pre', { className: 'mp-error-body' }, renderError))
+                      : renderError !== '' ? h('div', { className: 'mp-error' }, h('div', { className: 'mp-error-title' }, errLine === null ? t('renderError') : `${t('renderError')} · ${t('line')} ${errLine}`), h('pre', { className: 'mp-error-body' }, renderError))
                         : hasSvg ? h('div', { className: 'mp-svg', dangerouslySetInnerHTML: { __html: svg } })
                           : h('div', { className: 'mp-preview-empty' }, t('emptyPreview')))),
               h('div', { className: 'mp-zoombar' },
                 h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomOut'), onClick: () => actions.zoom(-1) }, '−'),
                 h('button', { type: 'button', className: 'mp-zoom-pct', title: t('zoomFit'), onClick: () => actions.zoom(0) }, `${Math.round(zoom * 100)}%`),
-                h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomIn'), onClick: () => actions.zoom(1) }, '+'))) : null))
+                h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomIn'), onClick: () => actions.zoom(1) }, '+'))) : null),
+        // Fullscreen preview overlay (Escape or the close button leaves it).
+        fullscreen && hasSvg ? h('div', { className: 'mp-fs' },
+          h('div', { className: 'mp-fs-head' },
+            h('span', { className: 'mp-status-name' }, displayName),
+            diagramType !== '' ? h('span', { className: 'mp-badge' }, diagramType) : null,
+            h('span', { className: 'mp-spacer' }),
+            h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomOut'), onClick: () => actions.zoom(-1) }, '−'),
+            h('button', { type: 'button', className: 'mp-zoom-pct', title: t('zoomFit'), onClick: () => actions.zoom(0) }, `${Math.round(zoom * 100)}%`),
+            h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomIn'), onClick: () => actions.zoom(1) }, '+'),
+            h('button', { type: 'button', className: 'mp-zoom-btn', title: t('close'), 'aria-label': t('close'), onClick: actions.toggleFullscreen }, iconNode(ICONS.close))),
+          h('div', { className: 'mp-fs-body' },
+            h('div', { className: 'mp-svg', style: { transform: `scale(${zoom})` }, dangerouslySetInnerHTML: { __html: svg } }))) : null)
     }
 
     /* ------------------------------------------------------------------ *
@@ -1063,16 +1159,19 @@ window.__ModuleLoader__.load({
 .mp-shell{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-fg,inherit);font-size:13px;box-sizing:border-box}
 *{box-sizing:border-box}
 .mp-toolbar{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border,#ddd);flex-wrap:wrap}
-.mp-btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--dsw-alias-border,#c8c8c8);background:var(--dsw-alias-bg-layer-1,#fff);color:inherit;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12.5px;line-height:1.4}
-.mp-btn:hover{background:var(--dsw-alias-bg-layer-2,#f2f2f2)}
-.mp-btn--primary{font-weight:600}
-.mp-btn--disabled{opacity:.45;cursor:default}
+.mp-btn{display:inline-flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--dsw-alias-fg-muted,#666);border-radius:7px;padding:5px;cursor:pointer;line-height:1}
+.mp-btn:hover{background:var(--dsw-alias-bg-layer-2,#eee);color:var(--dsw-alias-fg,#222)}
+.mp-btn--primary{color:var(--dsw-alias-accent,#4a7dff)}
+.mp-btn--primary:hover{background:rgba(74,125,255,.12);color:var(--dsw-alias-accent,#4a7dff)}
+.mp-btn--disabled{opacity:.4;cursor:default;background:transparent}
 .mp-icon{display:block}
 .mp-sep{width:1px;height:18px;background:var(--dsw-alias-border,#ddd);margin:0 2px}
 .mp-spacer{flex:1}
-.mp-seg{display:inline-flex;border:1px solid var(--dsw-alias-border,#c8c8c8);border-radius:6px;overflow:hidden}
-.mp-seg-btn{display:inline-flex;align-items:center;justify-content:center;border:none;background:transparent;color:inherit;padding:4px 9px;cursor:pointer;font-size:12px}
-.mp-seg-btn--on{background:var(--dsw-alias-accent,#4a7dff);color:#fff}
+.mp-seg{display:inline-flex;gap:2px}
+.mp-seg-btn{display:inline-flex;align-items:center;justify-content:center;border:none;background:transparent;color:var(--dsw-alias-fg-muted,#666);border-radius:6px;padding:5px 7px;cursor:pointer;font-size:12px}
+.mp-seg-btn:hover{background:var(--dsw-alias-bg-layer-2,#eee);color:var(--dsw-alias-fg,#222)}
+.mp-seg-btn--on{background:var(--dsw-alias-bg-layer-2,#e8e8ea);color:var(--dsw-alias-accent,#4a7dff)}
+.mp-seg-btn--on:hover{background:var(--dsw-alias-bg-layer-2,#e8e8ea);color:var(--dsw-alias-accent,#4a7dff)}
 .mp-menu-wrap{position:relative}
 .mp-menu{position:absolute;right:0;top:100%;margin-top:4px;background:var(--dsw-alias-bg-layer-1,#fff);border:1px solid var(--dsw-alias-border,#ccc);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);z-index:30;min-width:140px;padding:4px}
 .mp-menu-item{display:block;width:100%;text-align:left;border:none;background:transparent;color:inherit;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12.5px}
@@ -1083,6 +1182,17 @@ window.__ModuleLoader__.load({
 .mp-menu-row{display:flex;align-items:center;gap:8px;padding:4px 10px 8px}
 .mp-menu-field{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dsw-alias-fg-muted,#888)}
 .mp-select{border:1px solid var(--dsw-alias-border,#c8c8c8);background:var(--dsw-alias-bg-layer-1,#fff);color:inherit;border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer;max-width:150px}
+.mp-select--ghost{border:none;background:transparent;color:var(--dsw-alias-fg-muted,#666);padding:5px 6px}
+.mp-select--ghost:hover{background:var(--dsw-alias-bg-layer-2,#eee);color:var(--dsw-alias-fg,#222)}
+.mp-caret{font-size:9px;margin-left:1px;opacity:.7}
+.mp-badge{font-size:10.5px;padding:1px 7px;border-radius:20px;background:var(--dsw-alias-bg-layer-2,#eee);color:var(--dsw-alias-fg-muted,#777);font-family:ui-monospace,monospace}
+.mp-status-draft{display:inline-flex;align-items:center;gap:6px;color:#b26a00}
+.mp-discard{border:1px solid var(--dsw-alias-border,#c8c8c8);background:transparent;color:inherit;border-radius:6px;padding:1px 7px;cursor:pointer;font-size:11px}
+.mp-discard:hover{background:var(--dsw-alias-bg-layer-2,#eee)}
+.mp-fs{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-0,#fafafa);color:var(--dsw-alias-fg,inherit)}
+.mp-fs-head{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border,#ddd)}
+.mp-fs-body{flex:1;min-height:0;overflow:auto;display:grid;place-items:center;padding:20px}
+.mp-fs-body .mp-svg{transform-origin:center center}
 .mp-status{display:flex;align-items:center;gap:10px;padding:3px 10px;border-bottom:1px solid var(--dsw-alias-border,#eee);font-size:11.5px;color:var(--dsw-alias-fg-muted,#888)}
 .mp-status-name{font-weight:600;color:var(--dsw-alias-fg,#333)}
 .mp-status-dirty{color:#e0902a}
@@ -1213,6 +1323,7 @@ window.__ModuleLoader__.load({
       createRenderGuard, draftKey, planDraft, changeVerdict,
       escapeHtml, highlightMermaid, lineNumbersText, clampRatio,
       resolveTheme, mermaidFence, resolvePngFill, THEME_CHOICES,
+      diagramTypeOf, extractErrorLine,
     }
     return module.exports
   },

@@ -176,3 +176,22 @@ test('resolvePngFill picks a canvas fill or transparency', () => {
   assert.equal(resolvePngFill('theme', true), '#1e1e1e')
   assert.equal(resolvePngFill('theme', false), '#ffffff')
 })
+
+test('diagramTypeOf reads the declared type, skipping directives/comments', () => {
+  const { diagramTypeOf } = load().__test__
+  assert.equal(diagramTypeOf('graph TD\n  A-->B'), 'graph')
+  assert.equal(diagramTypeOf('sequenceDiagram\n  A->>B: hi'), 'sequenceDiagram')
+  assert.equal(diagramTypeOf('%%{init: {"theme":"dark"}}%%\nflowchart LR\n  A-->B'), 'flowchart')
+  assert.equal(diagramTypeOf('---\ntitle: x\n---\n\n\npie title t\n  "a": 1'), 'pie')
+  assert.equal(diagramTypeOf('stateDiagram-v2\n  [*]-->S'), 'stateDiagram-v2')
+  assert.equal(diagramTypeOf(''), '')
+  assert.equal(diagramTypeOf('%% only a comment'), '')
+})
+
+test('extractErrorLine pulls a line number from a parse error', () => {
+  const { extractErrorLine } = load().__test__
+  assert.equal(extractErrorLine('Parse error on line 3:'), 3)
+  assert.equal(extractErrorLine('Problem at Line 12 here'), 12)
+  assert.equal(extractErrorLine('no number here'), null)
+  assert.equal(extractErrorLine(''), null)
+})
