@@ -233,15 +233,16 @@ test('svgNaturalSize prefers the viewBox, falls back to width/height', () => {
   assert.deepEqual(svgNaturalSize('garbage', '', ''), { w: 0, h: 0 })
 })
 
-test('fitScale fills the width, clamped and guarded', () => {
+test('fitScale contains the diagram (neither dim overflows), clamped and guarded', () => {
   const { fitScale } = load().__test__
-  // 1000x500 diagram into 500x500 box (minus 40 pad) → width fills: 460/1000
+  // 1000x500 diagram into 500x500 box (minus 40 pad) → width-bound: 460/1000
   assert.equal(fitScale(500, 500, 1000, 500, 40), 0.46)
-  // a tall diagram fills the WIDTH (not shrunk to fit its height): 460/500, scrolls vertically
-  assert.equal(fitScale(500, 500, 500, 2000, 40), 0.92)
+  // a tall diagram is height-bound under contain: 460/2000=0.23, raised to the 0.25 clamp floor
+  assert.equal(fitScale(500, 500, 500, 2000, 40), 0.25)
   // a tiny diagram would over-zoom; the clamp caps it at 6
   assert.equal(fitScale(500, 500, 10, 10, 40), 6)
-  // unmeasurable widths fall back to 1 (no fit)
+  // unmeasurable extents fall back to 1 (no fit)
   assert.equal(fitScale(500, 500, 0, 100, 40), 1)
+  assert.equal(fitScale(500, 500, 100, 0, 40), 1)
   assert.equal(fitScale(20, 500, 100, 100, 40), 1)
 })
