@@ -117,6 +117,29 @@ window.__ModuleLoader__.load({
         externalConflict: '文件在磁盘上已被修改（可能被 agent 改写）。',
         keep: '保留我的',
         reloaded: '已从磁盘更新',
+        export: '导出',
+        copyGroup: '复制',
+        downloadGroup: '下载',
+        pngOptions: 'PNG 设置',
+        copySvg: '复制 SVG',
+        copyPng: '复制 PNG',
+        copyMermaid: '复制 Mermaid 代码',
+        downloadSvg: '下载 SVG',
+        downloadPng: '下载 PNG',
+        pngScale: '倍率',
+        pngBg: '背景',
+        bgTheme: '跟随主题',
+        bgWhite: '白色',
+        bgTransparent: '透明',
+        copied: '已复制到剪贴板',
+        copyFailed: '剪贴板不可用',
+        theme: '主题',
+        themeAuto: '自动（跟随应用）',
+        themeDefault: '默认',
+        themeDark: '暗色',
+        themeForest: '森林',
+        themeNeutral: '中性',
+        themeBase: '基础',
       },
       en: {
         loading: 'Loading…',
@@ -147,6 +170,29 @@ window.__ModuleLoader__.load({
         externalConflict: 'The file changed on disk (possibly rewritten by the agent).',
         keep: 'Keep mine',
         reloaded: 'Updated from disk',
+        export: 'Export',
+        copyGroup: 'Copy',
+        downloadGroup: 'Download',
+        pngOptions: 'PNG options',
+        copySvg: 'Copy SVG',
+        copyPng: 'Copy PNG',
+        copyMermaid: 'Copy as ```mermaid',
+        downloadSvg: 'Download SVG',
+        downloadPng: 'Download PNG',
+        pngScale: 'Scale',
+        pngBg: 'Background',
+        bgTheme: 'Theme',
+        bgWhite: 'White',
+        bgTransparent: 'Transparent',
+        copied: 'Copied to clipboard',
+        copyFailed: 'Clipboard unavailable',
+        theme: 'Theme',
+        themeAuto: 'Auto (follow app)',
+        themeDefault: 'Default',
+        themeDark: 'Dark',
+        themeForest: 'Forest',
+        themeNeutral: 'Neutral',
+        themeBase: 'Base',
       },
     }
 
@@ -336,6 +382,61 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** localStorage key for the chosen Mermaid theme. */
+    const THEME_KEY = 'dsh-mermaid-preview:theme'
+    /** The theme options offered: 'auto' follows the app; the rest are Mermaid themes. */
+    const THEME_CHOICES = ['auto', 'default', 'dark', 'forest', 'neutral', 'base']
+
+    /**
+     * Resolve a theme choice to a Mermaid theme name.
+     * @param choice - one of THEME_CHOICES.
+     * @param dark - whether the shell is currently in dark mode (only matters for 'auto').
+     * @returns the Mermaid theme string to initialize with.
+     */
+    function resolveTheme(choice, dark) {
+      if (choice === 'default' || choice === 'dark' || choice === 'forest' || choice === 'neutral' || choice === 'base') return choice
+      return dark ? 'dark' : 'default'
+    }
+
+    /** Read the persisted theme choice (default 'auto'). */
+    function readThemeChoice() {
+      const store = draftBackend()
+      try {
+        const raw = store === null ? null : store.getItem(THEME_KEY)
+        return THEME_CHOICES.includes(raw) ? raw : 'auto'
+      } catch {
+        return 'auto'
+      }
+    }
+
+    /** Persist the theme choice. Best-effort. */
+    function saveThemeChoice(choice) {
+      const store = draftBackend()
+      if (store === null) return
+      try {
+        store.setItem(THEME_KEY, choice)
+      } catch {
+        /* storage blocked */
+      }
+    }
+
+    /** Wrap Mermaid source in a ```mermaid fenced block for pasting into Markdown. */
+    function mermaidFence(text) {
+      return '```mermaid\n' + String(text ?? '').replace(/\s+$/u, '') + '\n```'
+    }
+
+    /**
+     * The canvas fill for a PNG export.
+     * @param bg - 'theme' | 'white' | 'transparent'.
+     * @param dark - current shell dark mode (for 'theme').
+     * @returns a CSS colour, or null to leave the PNG transparent.
+     */
+    function resolvePngFill(bg, dark) {
+      if (bg === 'transparent') return null
+      if (bg === 'white') return '#ffffff'
+      return dark ? '#1e1e1e' : '#ffffff'
+    }
+
     /** A column of `1..count` line numbers as one newline-joined string. */
     function lineNumbersText(count) {
       let out = '1'
@@ -405,6 +506,7 @@ window.__ModuleLoader__.load({
     let runtimeRev = null
     let runtimeRevPromise = null
     let runtimeLoadPromise = null
+    let themeChoice = null
     let renderSeq = 0
 
     /** Read the runtime content revision from the host once. */
@@ -428,13 +530,7 @@ window.__ModuleLoader__.load({
           })
           .then((mod) => {
             mermaidRuntime = mod.default ?? mod.mermaid ?? mod
-            mermaidRuntime.initialize({
-              startOnLoad: false,
-              securityLevel: 'strict',
-              suppressErrorRendering: true,
-              theme: isDark() ? 'dark' : 'default',
-              fontFamily: 'inherit',
-            })
+            initMermaid()
             return mermaidRuntime
           })
           .catch((error) => { runtimeLoadPromise = null; throw error })
@@ -442,17 +538,34 @@ window.__ModuleLoader__.load({
       return runtimeLoadPromise
     }
 
+    /** (Re)initialize the loaded Mermaid with the current theme choice + shell mode. */
+    function initMermaid() {
+      if (mermaidRuntime === null) return
+      if (themeChoice === null) themeChoice = readThemeChoice()
+      mermaidRuntime.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        suppressErrorRendering: true,
+        theme: resolveTheme(themeChoice, isDark()),
+        fontFamily: 'inherit',
+      })
+    }
+
+    /**
+     * Switch the Mermaid theme at runtime: persists the choice, re-initializes the
+     * shared runtime, and returns so the caller can redraw. Inline `%%{init}%%`
+     * directives and YAML front-matter in a diagram still override this per-diagram.
+     * @param choice - one of THEME_CHOICES.
+     */
+    function applyThemeChoice(choice) {
+      themeChoice = THEME_CHOICES.includes(choice) ? choice : 'auto'
+      saveThemeChoice(themeChoice)
+      initMermaid()
+    }
+
     /** Re-apply the theme when the shell flips light/dark. */
     function retuneTheme() {
-      if (mermaidRuntime !== null) {
-        mermaidRuntime.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict',
-          suppressErrorRendering: true,
-          theme: isDark() ? 'dark' : 'default',
-          fontFamily: 'inherit',
-        })
-      }
+      initMermaid()
     }
 
     /** Render one diagram to SVG markup, rejecting with `{ parseError }`. */
@@ -490,8 +603,8 @@ window.__ModuleLoader__.load({
       return `<?xml version="1.0" encoding="UTF-8"?>\n${clone.outerHTML}`
     }
 
-    /** Rasterize an SVG string to a PNG blob at the given scale. */
-    function svgToPng(svgText, scale) {
+    /** Rasterize an SVG string to a PNG blob at the given scale, over an optional fill. */
+    function svgToPng(svgText, scale, fill) {
       return new Promise((resolve, reject) => {
         const svgBlob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' })
         const url = URL.createObjectURL(svgBlob)
@@ -503,8 +616,10 @@ window.__ModuleLoader__.load({
           canvas.width = Math.max(1, Math.round(width * scale))
           canvas.height = Math.max(1, Math.round(height * scale))
           const ctx2d = canvas.getContext('2d')
-          ctx2d.fillStyle = isDark() ? '#1e1e1e' : '#ffffff'
-          ctx2d.fillRect(0, 0, canvas.width, canvas.height)
+          if (fill !== null && fill !== undefined) {
+            ctx2d.fillStyle = fill
+            ctx2d.fillRect(0, 0, canvas.width, canvas.height)
+          }
           ctx2d.drawImage(img, 0, 0, canvas.width, canvas.height)
           URL.revokeObjectURL(url)
           canvas.toBlob((blob) => (blob === null ? reject(new Error('toBlob failed')) : resolve(blob)), 'image/png')
@@ -512,6 +627,32 @@ window.__ModuleLoader__.load({
         img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('svg load failed')) }
         img.src = url
       })
+    }
+
+    /**
+     * Whether the async Clipboard API is usable. It exists only in a secure
+     * context; the shell runs on loopback (a secure origin), so this is normally
+     * true — but a plain-HTTP remote access would lack it, and copy degrades to a
+     * message rather than a crash.
+     * @returns true when write is available.
+     */
+    function clipboardAvailable() {
+      return typeof navigator !== 'undefined' && navigator.clipboard != null
+        && typeof navigator.clipboard.write === 'function' && typeof ClipboardItem !== 'undefined'
+    }
+
+    /** Copy plain text (SVG markup, a ```mermaid fence) to the clipboard. */
+    async function copyText(text) {
+      if (typeof navigator === 'undefined' || navigator.clipboard?.writeText == null) return false
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+
+    /** Copy an image blob (PNG) to the clipboard, when the API supports it. */
+    async function copyImage(blob, mime) {
+      if (!clipboardAvailable()) return false
+      await navigator.clipboard.write([new ClipboardItem({ [mime]: blob })])
+      return true
     }
 
     /* ------------------------------------------------------------------ *
@@ -578,6 +719,9 @@ window.__ModuleLoader__.load({
       const [savedAt, setSavedAt] = React.useState('')
       const [draftRestored, setDraftRestored] = React.useState(false)
       const [externalMtime, setExternalMtime] = React.useState(null)
+      const [theme, setTheme] = React.useState(readThemeChoice)
+      const [pngScale, setPngScale] = React.useState(2)
+      const [pngBg, setPngBg] = React.useState('theme')
 
       const renderTimer = React.useRef(null)
       const previewRef = React.useRef(null)
@@ -777,10 +921,27 @@ window.__ModuleLoader__.load({
         exportPng() {
           const el = previewRef.current?.querySelector('svg')
           if (el == null) return
-          svgToPng(svgMarkup(el), Math.max(2, zoom * 2))
+          svgToPng(svgMarkup(el), pngScale, resolvePngFill(pngBg, isDark()))
             .then((blob) => download(blob, `${stripExt(fileName) || 'diagram'}.png`))
-            .catch(() => setSavedAt('⚠ PNG export failed'))
+            .catch(() => setSavedAt(`⚠ ${t('saveFailed')}`))
         },
+        copySvg() {
+          const el = previewRef.current?.querySelector('svg')
+          if (el == null) return
+          copyText(svgMarkup(el)).then((ok) => setSavedAt(ok ? `✓ ${t('copied')}` : `⚠ ${t('copyFailed')}`)).catch(() => setSavedAt(`⚠ ${t('copyFailed')}`))
+        },
+        copyPng() {
+          const el = previewRef.current?.querySelector('svg')
+          if (el == null) return
+          svgToPng(svgMarkup(el), pngScale, resolvePngFill(pngBg, isDark()))
+            .then((blob) => copyImage(blob, 'image/png'))
+            .then((ok) => setSavedAt(ok ? `✓ ${t('copied')}` : `⚠ ${t('copyFailed')}`))
+            .catch(() => setSavedAt(`⚠ ${t('copyFailed')}`))
+        },
+        copyMermaid() {
+          copyText(mermaidFence(text)).then((ok) => setSavedAt(ok ? `✓ ${t('copied')}` : `⚠ ${t('copyFailed')}`)).catch(() => setSavedAt(`⚠ ${t('copyFailed')}`))
+        },
+        setThemeChoice(choice) { setTheme(choice); applyThemeChoice(choice); scheduleRender(text) },
       }
 
       const displayName = fileName || basenameOfAddress(address) || t('noAddress')
@@ -811,11 +972,30 @@ window.__ModuleLoader__.load({
               onClick: () => actions.setViewMode(mode),
             }, iconNode(ICONS[mode])))),
           h('span', { className: 'mp-spacer' }),
+          h('select', {
+            className: 'mp-select', title: t('theme'), 'aria-label': t('theme'),
+            value: theme, onChange: (e) => actions.setThemeChoice(e.target.value),
+          }, THEME_CHOICES.map(choice => h('option', { key: choice, value: choice }, t(`theme${choice[0].toUpperCase()}${choice.slice(1)}`)))),
           h('div', { className: 'mp-menu-wrap' },
-            h('button', { type: 'button', className: 'mp-seg-btn', onClick: actions.toggleMenu }, `${t('exportSvg')}/${t('exportPng')} ▾`),
-            menuOpen ? h('div', { className: 'mp-menu' },
-              h('button', { type: 'button', className: 'mp-menu-item', disabled: !hasSvg, onClick: () => { actions.exportSvg(); actions.toggleMenu() } }, t('exportSvg')),
-              h('button', { type: 'button', className: 'mp-menu-item', disabled: !hasSvg, onClick: () => { actions.exportPng(); actions.toggleMenu() } }, t('exportPng'))) : null),
+            h('button', { type: 'button', className: 'mp-seg-btn', onClick: actions.toggleMenu, 'aria-expanded': menuOpen }, `${t('export')} ▾`),
+            menuOpen ? h('div', { className: 'mp-menu mp-menu--wide' },
+              h('div', { className: 'mp-menu-group' }, t('copyGroup')),
+              h('button', { type: 'button', className: 'mp-menu-item', disabled: !hasSvg, onClick: () => { actions.copySvg(); actions.toggleMenu() } }, t('copySvg')),
+              h('button', { type: 'button', className: 'mp-menu-item', disabled: !hasSvg, onClick: () => { actions.copyPng(); actions.toggleMenu() } }, t('copyPng')),
+              h('button', { type: 'button', className: 'mp-menu-item', disabled: shownText.trim() === '', onClick: () => { actions.copyMermaid(); actions.toggleMenu() } }, t('copyMermaid')),
+              h('div', { className: 'mp-menu-group' }, t('downloadGroup')),
+              h('button', { type: 'button', className: 'mp-menu-item', disabled: !hasSvg, onClick: () => { actions.exportSvg(); actions.toggleMenu() } }, t('downloadSvg')),
+              h('button', { type: 'button', className: 'mp-menu-item', disabled: !hasSvg, onClick: () => { actions.exportPng(); actions.toggleMenu() } }, t('downloadPng')),
+              h('div', { className: 'mp-menu-group' }, t('pngOptions')),
+              h('div', { className: 'mp-menu-row' },
+                h('label', { className: 'mp-menu-field' }, t('pngScale'),
+                  h('select', { className: 'mp-select', value: String(pngScale), onChange: (e) => setPngScale(Number(e.target.value)) },
+                    [1, 2, 3, 4].map(s => h('option', { key: s, value: String(s) }, `${s}×`)))),
+                h('label', { className: 'mp-menu-field' }, t('pngBg'),
+                  h('select', { className: 'mp-select', value: pngBg, onChange: (e) => setPngBg(e.target.value) },
+                    h('option', { value: 'theme' }, t('bgTheme')),
+                    h('option', { value: 'white' }, t('bgWhite')),
+                    h('option', { value: 'transparent' }, t('bgTransparent')))))) : null),
           h('div', { className: 'mp-menu-wrap' },
             h('button', { type: 'button', className: 'mp-seg-btn', onClick: actions.toggleTemplates }, `${t('templates')} ▾`),
             templatesOpen && !readOnly ? h('div', { className: 'mp-menu' },
@@ -898,6 +1078,11 @@ window.__ModuleLoader__.load({
 .mp-menu-item{display:block;width:100%;text-align:left;border:none;background:transparent;color:inherit;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12.5px}
 .mp-menu-item:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2,#f2f2f2)}
 .mp-menu-item:disabled{opacity:.4;cursor:default}
+.mp-menu--wide{min-width:220px}
+.mp-menu-group{padding:6px 10px 2px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dsw-alias-fg-muted,#aaa)}
+.mp-menu-row{display:flex;align-items:center;gap:8px;padding:4px 10px 8px}
+.mp-menu-field{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dsw-alias-fg-muted,#888)}
+.mp-select{border:1px solid var(--dsw-alias-border,#c8c8c8);background:var(--dsw-alias-bg-layer-1,#fff);color:inherit;border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer;max-width:150px}
 .mp-status{display:flex;align-items:center;gap:10px;padding:3px 10px;border-bottom:1px solid var(--dsw-alias-border,#eee);font-size:11.5px;color:var(--dsw-alias-fg-muted,#888)}
 .mp-status-name{font-weight:600;color:var(--dsw-alias-fg,#333)}
 .mp-status-dirty{color:#e0902a}
@@ -1027,6 +1212,7 @@ window.__ModuleLoader__.load({
       interpolate, pick, basenameOfAddress, stripExt, isAbsoluteAddress, tabDefinition,
       createRenderGuard, draftKey, planDraft, changeVerdict,
       escapeHtml, highlightMermaid, lineNumbersText, clampRatio,
+      resolveTheme, mermaidFence, resolvePngFill, THEME_CHOICES,
     }
     return module.exports
   },

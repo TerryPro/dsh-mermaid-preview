@@ -16,9 +16,10 @@
 1. 在右侧栏的 **Files** 面板里点开一个 `.mmd` / `.mermaid` 文件（或点击聊天里指向它的文件链接）。
 2. 右侧栏打开一个以该文件命名的 Mermaid 标签页：左编辑器、右实时预览（防抖 350ms）。
 3. 编辑后点 **保存**，写回原文件；**重新载入** 从磁盘再读一次；**Ctrl/Cmd+S** 也可保存。
-4. 视图可切 **分栏 / 仅代码 / 仅预览**；分栏可**拖动分隔条**调整比例（记忆）；预览支持缩放；可 **导出 SVG / PNG**；有 7 种图模板可插入。
-5. 编辑器带**行号栏**与**轻量语法高亮**（注释/关键字/箭头/字符串，覆盖层与 textarea 同步滚动，Chromium 不换行以保证对齐）。
-6. 主题跟随应用明/暗自动切换；Mermaid 库离线打包内置，不依赖 CDN。
+4. 视图可切 **分栏 / 仅代码 / 仅预览**；分栏可**拖动分隔条**调整比例（记忆）；预览支持缩放（右下角浮动工具条）。
+5. **导出**面板：复制 SVG / 复制 PNG / 复制为 ```` ```mermaid ```` 代码块；下载 SVG / PNG（PNG 可选倍率 1–4× 与背景 主题/白/透明）；有 7 种图模板可插入。
+6. 编辑器带**行号栏**与**轻量语法高亮**（注释/关键字/箭头/字符串，覆盖层与 textarea 同步滚动，Chromium 不换行以保证对齐）。
+7. **主题选择器**（自动/默认/暗色/森林/中性/基础，持久化）；图内的 `%%{init}%%` 指令与 YAML front-matter 由 Mermaid 原生解析，按图覆盖全局主题。Mermaid 库离线打包内置，不依赖 CDN。
 
 没有 guide 页胶囊入口——插件的存在方式就是「点开 Mermaid 文件时接管渲染与编辑」。
 
@@ -86,7 +87,7 @@ dsh-mermaid-preview/
 
 ```powershell
 npm run check            # 语法检查全部源文件
-npm test                 # node:test：地址解析 / IO / 写限制 / 端到端 HTTP / 客户端契约 / 运行时 bundle / 高亮（25 项）
+npm test                 # node:test：地址解析 / IO / 写限制 / 端到端 HTTP / 客户端契约 / 运行时 bundle / 高亮（28 项）
 npm run build            # 重新生成 Mermaid 运行时 bundle
 ```
 
@@ -101,9 +102,16 @@ npm run build            # 重新生成 Mermaid 运行时 bundle
 
 ## 已知限制
 
-- 仅接管 `.mmd` / `.mermaid`；`securityLevel: 'strict'`，含 HTML 标签的写法会被转义。
+- 仅接管 `.mmd` / `.mermaid`；预览用 `securityLevel: 'strict'`，含 HTML 标签的写法会被转义。
 - 工作区根之外（或 `absolute` 地址）的文件为只读预览，不能在此保存。
+- 剪贴板复制需安全上下文（dsh 本地 loopback 满足）；不可用时降级为提示。
 - 需在 dsh 实例里实际打开文件做可视化确认（宿主侧与纯逻辑已由自动化测试覆盖）。
+
+## 升级与兼容
+
+本插件依赖 dsh 右侧栏的若干**内部契约**（`ctx.sidebarRightTabs`、`sidebar.right.pane.tab` 槽位、`useTabInfo`、
+`ctx.sessions.get(id).header.cwd`、`dsh-resource://file/…` 地址语法等）。这些在 `0.2.0-rc.x` 阶段仍可能变动，
+逐项依赖、来源与升级核对清单见 **[COMPATIBILITY.md](./COMPATIBILITY.md)**（当前验证版本 dsh `v0.2.0-rc.2`）。
 
 ## 许可
 

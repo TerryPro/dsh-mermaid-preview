@@ -148,3 +148,31 @@ test('clampRatio bounds the split and tolerates junk', () => {
   assert.equal(clampRatio(0.99), 0.82)
   assert.equal(clampRatio(Number.NaN), 0.5)
 })
+
+test('resolveTheme maps a choice to a Mermaid theme', () => {
+  const { resolveTheme, THEME_CHOICES } = load().__test__
+  assert.deepEqual(THEME_CHOICES, ['auto', 'default', 'dark', 'forest', 'neutral', 'base'])
+  assert.equal(resolveTheme('auto', true), 'dark')
+  assert.equal(resolveTheme('auto', false), 'default')
+  // explicit choices win over the shell mode
+  assert.equal(resolveTheme('forest', true), 'forest')
+  assert.equal(resolveTheme('base', false), 'base')
+  // an unknown value falls back to the auto behaviour
+  assert.equal(resolveTheme('bogus', true), 'dark')
+})
+
+test('mermaidFence wraps source in a ```mermaid block', () => {
+  const { mermaidFence } = load().__test__
+  assert.equal(mermaidFence('graph TD\n  A-->B'), '```mermaid\ngraph TD\n  A-->B\n```')
+  // trailing whitespace/newlines are trimmed before the closing fence
+  assert.equal(mermaidFence('graph TD\n\n'), '```mermaid\ngraph TD\n```')
+  assert.equal(mermaidFence(''), '```mermaid\n\n```')
+})
+
+test('resolvePngFill picks a canvas fill or transparency', () => {
+  const { resolvePngFill } = load().__test__
+  assert.equal(resolvePngFill('transparent', true), null)
+  assert.equal(resolvePngFill('white', true), '#ffffff')
+  assert.equal(resolvePngFill('theme', true), '#1e1e1e')
+  assert.equal(resolvePngFill('theme', false), '#ffffff')
+})
