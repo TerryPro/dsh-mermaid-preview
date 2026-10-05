@@ -195,3 +195,25 @@ test('extractErrorLine pulls a line number from a parse error', () => {
   assert.equal(extractErrorLine('no number here'), null)
   assert.equal(extractErrorLine(''), null)
 })
+
+test('closingFor maps an opener to its partner', () => {
+  const { closingFor } = load().__test__
+  assert.equal(closingFor('['), ']')
+  assert.equal(closingFor('('), ')')
+  assert.equal(closingFor('{'), '}')
+  assert.equal(closingFor('"'), '"')
+  assert.equal(closingFor("'"), "'")
+  assert.equal(closingFor('a'), null)
+})
+
+test('indentBlock indents/outdents whole lines and re-selects the block', () => {
+  const { indentBlock } = load().__test__
+  // indent every touched line, even a caret-only selection
+  assert.deepEqual(indentBlock('a\nb', 0, 3, 1), { value: '  a\n  b', selStart: 0, selEnd: 7 })
+  // outdent removes up to two leading spaces
+  assert.deepEqual(indentBlock('  a\n  b', 0, 7, -1), { value: 'a\nb', selStart: 0, selEnd: 3 })
+  // a partial selection still expands to whole lines and leaves the rest intact
+  const r = indentBlock('x\n  y\nz', 2, 5, -1)
+  assert.equal(r.value, 'x\ny\nz')
+  assert.deepEqual({ start: r.selStart, end: r.selEnd }, { start: 2, end: 3 })
+})

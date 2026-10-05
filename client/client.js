@@ -486,6 +486,35 @@ window.__ModuleLoader__.load({
       return m === null ? null : Number(m[1])
     }
 
+    /** The closing partner of an opening bracket/quote, or null. */
+    function closingFor(ch) {
+      return ch === '[' ? ']' : ch === '(' ? ')' : ch === '{' ? '}' : ch === '"' ? '"' : ch === "'" ? "'" : null
+    }
+
+    /**
+     * Indent (dir > 0) or outdent (dir < 0) every line the [start,end) selection
+     * touches, operating on whole lines. Two spaces per step; outdent removes up
+     * to two leading spaces. The result re-selects the whole edited block, which
+     * keeps repeated Tab presses cascading cleanly.
+     * @returns `{ value, selStart, selEnd }`.
+     */
+    function indentBlock(value, start, end, dir) {
+      const src = String(value ?? '')
+      const lineStart = src.lastIndexOf('\n', Math.max(0, start) - 1) + 1
+      let lineEnd = src.indexOf('\n', Math.max(0, end))
+      if (lineEnd === -1) lineEnd = src.length
+      const block = src.slice(lineStart, lineEnd)
+      const lines = block.split('\n')
+      const outdented = lines.map((line) => {
+        if (dir > 0) return `  ${line}`
+        const lead = line.match(/^ {1,2}/u)
+        return lead === null ? line : line.slice(lead[0].length)
+      })
+      const newBlock = outdented.join('\n')
+      const newValue = src.slice(0, lineStart) + newBlock + src.slice(lineEnd)
+      return { value: newValue, selStart: lineStart, selEnd: lineStart + newBlock.length }
+    }
+
     /** A column of `1..count` line numbers as one newline-joined string. */
     function lineNumbersText(count) {
       let out = '1'
@@ -778,6 +807,8 @@ window.__ModuleLoader__.load({
       const [pngBg, setPngBg] = React.useState('theme')
       const [fullscreen, setFullscreen] = React.useState(false)
       const [syncScroll, setSyncScroll] = React.useState(false)
+      const [rendering, setRendering] = React.useState(false)
+      const [composing, setComposing] = React.useState(false)
 
       const renderTimer = React.useRef(null)
       const previewRef = React.useRef(null)
@@ -786,6 +817,7 @@ window.__ModuleLoader__.load({
       const gutterRef = React.useRef(null)  // the line-number column
       const hlRef = React.useRef(null)      // the highlight overlay <pre>
       const previewScrollRef = React.useRef(null) // the preview's scroll container
+      const pendingSel = React.useRef(null)       // caret/selection to restore after a programmatic edit
       const workspaceRef = React.useRef(null)
       const loadedMtime = React.useRef(null)      // mtime the current baseline was read at
       const dismissedMtime = React.useRef(null)   // an external change the user chose to keep over
@@ -885,14 +917,15 @@ window.__ModuleLoader__.load({
       /** Render the current text (debounced); the newest render wins over any in flight. */
       const scheduleRender = React.useCallback((code) => {
         if (renderTimer.current !== null) clearTimeout(renderTimer.current)
-        if (code.trim() === '' || mermaidRuntime === null) { renderGuard.begin(); setSvg(''); return }
+        if (code.trim() === '' || mermaidRuntime === null) { renderGuard.begin(); setSvg(''); setRendering(false); return }
+        setRendering(true)
         renderTimer.current = setTimeout(() => {
           renderTimer.current = null
           const token = renderGuard.begin()
-          if (code.length > MAX_SOURCE_CHARS) { setRenderError(`source exceeds ${MAX_SOURCE_CHARS} chars`); setSvg(''); return }
+          if (code.length > MAX_SOURCE_CHARS) { setRenderError(`source exceeds ${MAX_SOURCE_CHARS} chars`); setSvg(''); setRendering(false); return }
           renderMermaid(code)
-            .then((result) => { if (!renderGuard.isCurrent(token)) return; setSvg(result.svg); setRenderError('') })
-            .catch((err) => { if (!renderGuard.isCurrent(token)) return; setSvg(''); setRenderError(String(err?.parseError ?? err?.message ?? err)) })
+            .then((result) => { if (!renderGuard.isCurrent(token)) return; setSvg(result.svg); setRenderError(''); setRendering(false) })
+            .catch((err) => { if (!renderGuard.isCurrent(token)) return; setSvg(''); setRenderError(String(err?.parseError ?? err?.message ?? err)); setRendering(false) })
         }, RENDER_DEBOUNCE_MS)
       }, [renderGuard])
 
@@ -918,6 +951,30 @@ window.__ModuleLoader__.load({
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
       }, [fullscreen])
+
+      /** Close an open dropdown on an outside click or Escape, so menus never linger. */
+      React.useEffect(() => {
+        if ((!menuOpen && !templatesOpen) || typeof document === 'undefined') return undefined
+        const dismiss = () => { setMenuOpen(false); setTemplatesOpen(false) }
+        const onKey = (e) => { if (e.key === 'Escape') dismiss() }
+        const onDown = (e) => { if (e.target?.closest?.('.mp-menu-wrap') === null) dismiss() }
+        document.addEventListener('keydown', onKey)
+        document.addEventListener('mousedown', onDown)
+        return () => { document.removeEventListener('keydown', onKey); document.removeEventListener('mousedown', onDown) }
+      }, [menuOpen, templatesOpen])
+
+      /** Restore the caret/selection a programmatic edit (Tab, auto-close) asked for. */
+      React.useEffect(() => {
+        if (pendingSel.current === null) return
+        const ta = taRef.current
+        if (ta !== null) {
+          ta.selectionStart = pendingSel.current.start
+          ta.selectionEnd = pendingSel.current.end
+          if (gutterRef.current !== null) gutterRef.current.scrollTop = ta.scrollTop
+          if (hlRef.current !== null) { hlRef.current.scrollTop = ta.scrollTop; hlRef.current.scrollLeft = ta.scrollLeft }
+        }
+        pendingSel.current = null
+      })
 
       /* ---------------- actions ---------------- */
 
@@ -1112,10 +1169,10 @@ window.__ModuleLoader__.load({
             editorVisible ? h('div', { className: 'mp-editor', style: view === 'split' ? { flex: `0 1 ${splitRatio * 100}%` } : undefined },
               h('div', { ref: gutterRef, className: 'mp-gutter', 'aria-hidden': 'true' }, lineNumbersText(lineCount)),
               h('div', { className: 'mp-code' },
-                h('pre', { ref: hlRef, className: 'mp-highlight', 'aria-hidden': 'true', dangerouslySetInnerHTML: { __html: highlighted } }),
+                h('pre', { ref: hlRef, className: `mp-highlight${composing ? ' mp-highlight--dim' : ''}`, 'aria-hidden': 'true', dangerouslySetInnerHTML: { __html: highlighted } }),
                 h('textarea', {
                   ref: taRef,
-                  className: 'mp-textarea',
+                  className: `mp-textarea${composing ? ' mp-textarea--composing' : ''}`,
                   wrap: 'off',
                   readOnly,
                   spellCheck: false,
@@ -1123,6 +1180,35 @@ window.__ModuleLoader__.load({
                   value: shownText,
                   onChange: e => actions.changeText(e.target.value),
                   onScroll: actions.onEditorScroll,
+                  onCompositionStart: () => setComposing(true),
+                  onCompositionEnd: () => setComposing(false),
+                  onKeyDown: (e) => {
+                    // Never fight the IME: while composing, leave every key to the browser.
+                    if (e.nativeEvent?.isComposing || e.isComposing) return
+                    const ta = taRef.current
+                    if (ta == null || readOnly) return
+                    if (e.key === 'Tab') {
+                      e.preventDefault()
+                      const r = indentBlock(text, ta.selectionStart, ta.selectionEnd, e.shiftKey ? -1 : 1)
+                      pendingSel.current = { start: r.selStart, end: r.selEnd }
+                      actions.changeText(r.value)
+                      return
+                    }
+                    const close = closingFor(e.key)
+                    if (close !== null && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                      e.preventDefault()
+                      const s = ta.selectionStart
+                      const en = ta.selectionEnd
+                      if (s !== en) {
+                        const sel = text.slice(s, en)
+                        pendingSel.current = { start: s + 1, end: en + 1 }
+                        actions.changeText(text.slice(0, s) + e.key + sel + close + text.slice(en))
+                      } else {
+                        pendingSel.current = { start: s + 1, end: s + 1 }
+                        actions.changeText(text.slice(0, s) + e.key + close + text.slice(s))
+                      }
+                    }
+                  },
                 }))) : null,
             (editorVisible && previewVisible) ? h('div', { className: 'mp-splitter', onPointerDown: actions.startSplitDrag }) : null,
             previewVisible ? h('div', { className: 'mp-preview', style: view === 'split' ? { flex: `0 1 ${(1 - splitRatio) * 100}%` } : undefined },
@@ -1133,6 +1219,7 @@ window.__ModuleLoader__.load({
                       : renderError !== '' ? h('div', { className: 'mp-error' }, h('div', { className: 'mp-error-title' }, errLine === null ? t('renderError') : `${t('renderError')} · ${t('line')} ${errLine}`), h('pre', { className: 'mp-error-body' }, renderError))
                         : hasSvg ? h('div', { className: 'mp-svg', dangerouslySetInnerHTML: { __html: svg } })
                           : h('div', { className: 'mp-preview-empty' }, t('emptyPreview')))),
+              rendering ? h('div', { className: 'mp-busy', 'aria-hidden': 'true' }, h('span', { className: 'mp-spinner' })) : null,
               h('div', { className: 'mp-zoombar' },
                 h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomOut'), onClick: () => actions.zoom(-1) }, '−'),
                 h('button', { type: 'button', className: 'mp-zoom-pct', title: t('zoomFit'), onClick: () => actions.zoom(0) }, `${Math.round(zoom * 100)}%`),
@@ -1209,6 +1296,11 @@ window.__ModuleLoader__.load({
 .mp-textarea{position:absolute;inset:0;z-index:2;overflow:auto;background:transparent;color:transparent;caret-color:currentColor;resize:none;outline:none}
 .mp-textarea::placeholder{color:var(--dsw-alias-fg-muted,#9a9a9a)}
 .mp-textarea::-webkit-scrollbar{width:10px;height:10px}
+.mp-textarea--composing{color:var(--dsw-alias-fg,#1e1e1e)}
+.mp-highlight--dim{opacity:0}
+.mp-busy{position:absolute;top:8px;right:8px;z-index:5}
+.mp-spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--dsw-alias-border,#ccc);border-top-color:var(--dsw-alias-accent,#4a7dff);border-radius:50%;animation:mp-spin .7s linear infinite}
+@keyframes mp-spin{to{transform:rotate(360deg)}}
 .tk-com{color:#7a8288;font-style:italic}
 .tk-kw{color:#0451a5;font-weight:600}
 .tk-str{color:#a31515}
@@ -1323,7 +1415,7 @@ window.__ModuleLoader__.load({
       createRenderGuard, draftKey, planDraft, changeVerdict,
       escapeHtml, highlightMermaid, lineNumbersText, clampRatio,
       resolveTheme, mermaidFence, resolvePngFill, THEME_CHOICES,
-      diagramTypeOf, extractErrorLine,
+      diagramTypeOf, extractErrorLine, closingFor, indentBlock,
     }
     return module.exports
   },
