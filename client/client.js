@@ -1400,7 +1400,7 @@ window.__ModuleLoader__.load({
 .mp-gutter{flex:0 0 auto;overflow:hidden;white-space:pre;text-align:right;color:var(--dsw-alias-fg-muted,#b0b0b0);background:var(--dsw-alias-bg-layer-0,#fafafa);border-right:1px solid var(--dsw-alias-border,#eee);padding:10px 8px 10px 10px;user-select:none}
 .mp-highlight,.mp-textarea{margin:0;padding:10px 12px;border:0;white-space:pre}
 .mp-highlight{position:absolute;inset:0;pointer-events:none;z-index:1;overflow:hidden;color:var(--dsw-alias-fg,#1e1e1e);background:var(--dsw-alias-bg-layer-1,#fff)}
-.mp-textarea{position:absolute;inset:0;z-index:2;overflow:auto;background:transparent;color:transparent;caret-color:currentColor;resize:none;outline:none}
+.mp-textarea{position:absolute;inset:0;z-index:2;overflow:auto;background:transparent;color:transparent;caret-color:var(--dsw-alias-fg,#1e1e1e);resize:none;outline:none}
 .mp-textarea::placeholder{color:var(--dsw-alias-fg-muted,#9a9a9a)}
 .mp-textarea::-webkit-scrollbar{width:10px;height:10px}
 .mp-textarea--composing{color:var(--dsw-alias-fg,#1e1e1e)}
