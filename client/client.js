@@ -1402,7 +1402,10 @@ window.__ModuleLoader__.load({
 .mp-highlight{position:absolute;inset:0;pointer-events:none;z-index:1;overflow:hidden;color:var(--dsw-alias-fg,#1e1e1e);background:var(--dsw-alias-bg-layer-1,#fff)}
 .mp-textarea{position:absolute;inset:0;z-index:2;overflow:auto;background:transparent;color:transparent;caret-color:var(--dsw-alias-fg,#1e1e1e);resize:none;outline:none}
 .mp-textarea::placeholder{color:var(--dsw-alias-fg-muted,#9a9a9a)}
-.mp-textarea::-webkit-scrollbar{width:10px;height:10px}
+.mp-textarea::-webkit-scrollbar{width:10px;height:10px;cursor:default;background:transparent}
+.mp-textarea::-webkit-scrollbar-thumb{background:var(--dsw-alias-border,#c8c8c8);border-radius:6px;cursor:default}
+.mp-textarea::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-fg-muted,#999)}
+.mp-textarea::-webkit-scrollbar-corner{background:transparent}
 .mp-textarea--composing{color:var(--dsw-alias-fg,#1e1e1e)}
 .mp-highlight--dim{opacity:0}
 .mp-busy{position:absolute;top:8px;right:8px;z-index:5}
