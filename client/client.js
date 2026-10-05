@@ -851,6 +851,7 @@ window.__ModuleLoader__.load({
       const [rendering, setRendering] = React.useState(false)
       const [composing, setComposing] = React.useState(false)
       const [panning, setPanning] = React.useState(false)
+      const [pan, setPan] = React.useState({ x: 0, y: 0 })   // free-pan offset (px)
 
       const renderTimer = React.useRef(null)
       const previewRef = React.useRef(null)
@@ -861,7 +862,7 @@ window.__ModuleLoader__.load({
       const previewScrollRef = React.useRef(null) // the preview's scroll container
       const pendingSel = React.useRef(null)       // caret/selection to restore after a programmatic edit
       const didFitRef = React.useRef(false)       // auto-fit once per opened file
-      const panRef = React.useRef(null)           // { x, y, scrollLeft, scrollTop } while dragging
+      const panRef = React.useRef(null)           // { x, y, px, py } while dragging
       const workspaceRef = React.useRef(null)
       const loadedMtime = React.useRef(null)      // mtime the current baseline was read at
       const dismissedMtime = React.useRef(null)   // an external change the user chose to keep over
@@ -1068,12 +1069,13 @@ window.__ModuleLoader__.load({
         insertTemplate(code) { setText(code); setSavedAt('') },
         setViewMode(mode) { setView(mode) },
         zoom(step) { setZoom(z => clampZoom(z + step * 0.25)) },
-        resetZoom() { setZoom(1) },
+        resetZoom() { setZoom(1); setPan({ x: 0, y: 0 }) },
         // Fit the rendered diagram into the visible preview box.
         fitToView() {
           const sc = previewScrollRef.current
           const svgEl = previewRef.current?.querySelector('svg')
           if (sc == null || svgEl == null) { setZoom(1); return }
+          setPan({ x: 0, y: 0 })
           // Measure the REAL rendered size (undo the current zoom) rather than
           // trusting viewBox/width attributes, so any residual inline max-width
           // or CSS constraint can't make the fit lie about the diagram's extent.
@@ -1316,23 +1318,25 @@ window.__ModuleLoader__.load({
                 ref: previewScrollRef,
                 onDoubleClick: () => actions.fitToView(),
                 onPointerDown: (e) => {
-                  const sc = previewScrollRef.current
-                  if (sc == null || e.button !== 0) return
-                  panRef.current = { x: e.clientX, y: e.clientY, sl: sc.scrollLeft, st: sc.scrollTop }
-                  sc.setPointerCapture?.(e.pointerId)
+                  if (e.button !== 0) return
+                  panRef.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y }
+                  e.currentTarget.setPointerCapture?.(e.pointerId)
                   setPanning(true)
                 },
                 onPointerMove: (e) => {
-                  const sc = previewScrollRef.current
                   const p = panRef.current
-                  if (sc == null || p == null) return
-                  sc.scrollLeft = p.sl - (e.clientX - p.x)
-                  sc.scrollTop = p.st - (e.clientY - p.y)
+                  if (p == null) return
+                  const sc = previewScrollRef.current
+                  const cw = sc?.clientWidth ?? 0
+                  const ch = sc?.clientHeight ?? 0
+                  const nx = p.px + (e.clientX - p.x)
+                  const ny = p.py + (e.clientY - p.y)
+                  setPan({ x: Math.max(-cw, Math.min(cw, nx)), y: Math.max(-ch, Math.min(ch, ny)) })
                 },
-                onPointerUp: (e) => { previewScrollRef.current?.releasePointerCapture?.(e.pointerId); panRef.current = null; setPanning(false) },
+                onPointerUp: (e) => { e.currentTarget.releasePointerCapture?.(e.pointerId); panRef.current = null; setPanning(false) },
                 onPointerCancel: () => { panRef.current = null; setPanning(false) },
               },
-                h('div', { className: 'mp-stage' },
+                h('div', { className: 'mp-stage', style: { transform: `translate(${pan.x}px, ${pan.y}px)` } },
                   h('div', { ref: previewRef, className: 'mp-canvas', style: { zoom: String(zoom) } },
                   notFound ? h('div', { className: 'mp-preview-empty' }, t('notFound'))
                     : loadError !== '' ? h('div', { className: 'mp-error' }, h('div', { className: 'mp-error-title' }, t('readFailed')), h('pre', { className: 'mp-error-body' }, loadError))
@@ -1439,7 +1443,7 @@ window.__ModuleLoader__.load({
 .mp-splitter{flex:0 0 3px;cursor:col-resize;background:var(--dsw-alias-border,#ddd);opacity:.5}
 .mp-splitter:hover{opacity:1;background:var(--dsw-alias-accent,#4a7dff)}
 .mp-preview{flex:1 1 50%;min-width:0;overflow:hidden;position:relative;background:var(--dsw-alias-bg-layer-0,#fafafa)}
-.mp-preview-scroll{position:absolute;inset:0;overflow:auto;user-select:none;cursor:grab}
+.mp-preview-scroll{position:absolute;inset:0;overflow:hidden;user-select:none;cursor:grab}
 .mp-preview-scroll--panning{cursor:grabbing}
 .mp-stage{min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
 .mp-zoombar{position:absolute;right:10px;bottom:10px;z-index:6;display:flex;align-items:center;gap:2px;padding:2px;border-radius:10px;background:var(--dsw-alias-bg-layer-1,#fff);border:1px solid var(--dsw-alias-border,#ddd);box-shadow:0 2px 8px rgba(0,0,0,.14)}
