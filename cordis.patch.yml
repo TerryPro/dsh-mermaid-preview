@@ -1,0 +1,12 @@
+# dsh-mermaid-preview bundle patch: inserts this plugin into a profile's layer stack.
+#
+# The row's module name is the bare package name, which is what makes the
+# client module system attach this package's ./client bundle to it as the
+# browser half (a row mounted from a subpath export would carry no half).
+# The browser half registers the Mermaid tab against the right sidebar
+# (ctx.sidebarRightTabs + the keyed `sidebar.right.pane.tab` seat); the host
+# half (index.js) serves the file read/write routes and the bundled Mermaid
+# runtime under /dsh-mermaid-preview/*.
+- insert:
+    - id: dsh-mermaid-preview
+      name: 'dsh-mermaid-preview'

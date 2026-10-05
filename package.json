@@ -1,0 +1,59 @@
+{
+  "name": "dsh-mermaid-preview",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mermaid editor + live preview as a DeepSeek Harness right-sidebar tab: open a .mmd/.mermaid file from a folder, edit it, watch the diagram render, save it back. · 作为右侧面板的 Mermaid 编辑与预览标签页。",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib",
+    "client",
+    "src",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepare": "npm run build",
+    "check": "node --check index.js && node --check lib/http.js && node --check lib/address.js && node --check lib/files.js && node --check lib/routes.js && node --check client/client.js && node --check src/mermaid-runtime.js",
+    "test": "node --test tools/test-host.mjs tools/test-routes-e2e.mjs tools/test-client.mjs tools/test-runtime-bundle.mjs"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "mermaid",
+    "diagram",
+    "preview",
+    "editor",
+    "web-ui"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "happy-dom": "^20.11.6",
+    "mermaid": "11.17.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
