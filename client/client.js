@@ -1424,13 +1424,13 @@ window.__ModuleLoader__.load({
 .mp-splitter{flex:0 0 3px;cursor:col-resize;background:var(--dsw-alias-border,#ddd);opacity:.5}
 .mp-splitter:hover{opacity:1;background:var(--dsw-alias-accent,#4a7dff)}
 .mp-preview{flex:1 1 50%;min-width:0;overflow:hidden;position:relative;background:var(--dsw-alias-bg-layer-0,#fafafa)}
-.mp-preview-scroll{position:absolute;inset:0;overflow:auto;user-select:none;cursor:grab}
+.mp-preview-scroll{position:absolute;inset:0;overflow:auto;user-select:none;cursor:grab;display:flex}
 .mp-preview-scroll--panning{cursor:grabbing}
 .mp-zoombar{position:absolute;right:10px;bottom:10px;z-index:6;display:flex;align-items:center;gap:2px;padding:2px;border-radius:10px;background:var(--dsw-alias-bg-layer-1,#fff);border:1px solid var(--dsw-alias-border,#ddd);box-shadow:0 2px 8px rgba(0,0,0,.14)}
 .mp-zoom-btn,.mp-zoom-pct{border:none;background:transparent;color:inherit;cursor:pointer;border-radius:7px;font-size:13px;line-height:1;padding:4px 7px}
 .mp-zoom-pct{font-size:11.5px;min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
 .mp-zoom-btn:hover,.mp-zoom-pct:hover{background:var(--dsw-alias-bg-layer-2,#eee)}
-.mp-canvas{padding:16px;display:inline-block}
+.mp-canvas{padding:16px;margin:auto;flex:0 0 auto}
 .mp-svg{display:inline-block;min-width:100px}
 .mp-svg svg{max-width:none}
 .mp-preview-empty{padding:24px;color:var(--dsw-alias-fg-muted,#999);font-size:12.5px}
