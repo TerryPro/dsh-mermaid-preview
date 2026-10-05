@@ -1318,7 +1318,7 @@ window.__ModuleLoader__.load({
                 onPointerUp: (e) => { previewScrollRef.current?.releasePointerCapture?.(e.pointerId); panRef.current = null; setPanning(false) },
                 onPointerCancel: () => { panRef.current = null; setPanning(false) },
               },
-                h('div', { ref: previewRef, className: 'mp-canvas', style: { transform: `scale(${zoom})` } },
+                h('div', { ref: previewRef, className: 'mp-canvas', style: { zoom: String(zoom) } },
                   notFound ? h('div', { className: 'mp-preview-empty' }, t('notFound'))
                     : loadError !== '' ? h('div', { className: 'mp-error' }, h('div', { className: 'mp-error-title' }, t('readFailed')), h('pre', { className: 'mp-error-body' }, loadError))
                       : renderError !== '' ? h('div', { className: 'mp-error' }, h('div', { className: 'mp-error-title' }, errLine === null ? t('renderError') : `${t('renderError')} · ${t('line')} ${errLine}`), h('pre', { className: 'mp-error-body' }, renderError))
@@ -1342,7 +1342,7 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'mp-zoom-btn', title: t('zoomIn'), onClick: () => actions.zoom(1) }, '+'),
             h('button', { type: 'button', className: 'mp-zoom-btn', title: t('close'), 'aria-label': t('close'), onClick: actions.toggleFullscreen }, iconNode(ICONS.close))),
           h('div', { className: 'mp-fs-body' },
-            h('div', { className: 'mp-svg', style: { transform: `scale(${zoom})` }, dangerouslySetInnerHTML: { __html: svg } }))) : null)
+            h('div', { className: 'mp-svg', style: { zoom: String(zoom) }, dangerouslySetInnerHTML: { __html: svg } }))) : null)
     }
 
     /* ------------------------------------------------------------------ *
@@ -1386,7 +1386,7 @@ window.__ModuleLoader__.load({
 .mp-fs{position:fixed;inset:0;z-index:1000;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-0,#fafafa);color:var(--dsw-alias-fg,inherit)}
 .mp-fs-head{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border,#ddd)}
 .mp-fs-body{flex:1;min-height:0;overflow:auto;display:grid;place-items:center;padding:20px}
-.mp-fs-body .mp-svg{transform-origin:center center}
+.mp-fs-body .mp-svg{display:inline-block}
 .mp-status{display:flex;align-items:center;gap:10px;padding:3px 10px;border-bottom:1px solid var(--dsw-alias-border,#eee);font-size:11.5px;color:var(--dsw-alias-fg-muted,#888)}
 .mp-status-name{font-weight:600;color:var(--dsw-alias-fg,#333)}
 .mp-status-dirty{color:#e0902a}
@@ -1427,7 +1427,7 @@ window.__ModuleLoader__.load({
 .mp-zoom-btn,.mp-zoom-pct{border:none;background:transparent;color:inherit;cursor:pointer;border-radius:7px;font-size:13px;line-height:1;padding:4px 7px}
 .mp-zoom-pct{font-size:11.5px;min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
 .mp-zoom-btn:hover,.mp-zoom-pct:hover{background:var(--dsw-alias-bg-layer-2,#eee)}
-.mp-canvas{transform-origin:top left;padding:16px;min-width:100%;display:inline-block}
+.mp-canvas{padding:16px;display:inline-block}
 .mp-svg{display:inline-block;min-width:100px}
 .mp-svg svg{max-width:none}
 .mp-preview-empty{padding:24px;color:var(--dsw-alias-fg-muted,#999);font-size:12.5px}
