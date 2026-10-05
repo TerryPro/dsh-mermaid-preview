@@ -1396,7 +1396,7 @@ window.__ModuleLoader__.load({
 .mp-workspace{display:flex;flex:1;min-height:0;overflow:hidden}
 .mp-editor{flex:1 1 50%;min-width:0;display:flex;overflow:hidden}
 .mp-code{position:relative;flex:1 1 auto;min-width:0}
-.mp-gutter,.mp-highlight,.mp-textarea{font-family:ui-monospace,SFMono-Regular,Cascadia Code,Consolas,monospace;font-size:13px;line-height:20px;tab-size:2}
+.mp-gutter,.mp-highlight,.mp-textarea{font-family:var(--dsw-font-markdown-code-block-font-family, var(--ds-font-family-code, ui-monospace, SFMono-Regular, 'JetBrains Mono', 'Fira Code', Consolas, monospace));font-size:var(--dsw-font-markdown-code-block-font-size, 12px);line-height:var(--dsw-font-markdown-code-block-line-height, 19px);font-weight:var(--dsw-font-markdown-code-block-font-weight, 400);tab-size:2}
 .mp-gutter{flex:0 0 auto;overflow:hidden;white-space:pre;text-align:right;color:var(--dsw-alias-fg-muted,#b0b0b0);background:var(--dsw-alias-bg-layer-0,#fafafa);border-right:1px solid var(--dsw-alias-border,#eee);padding:10px 8px 10px 10px;user-select:none}
 .mp-highlight,.mp-textarea{margin:0;padding:10px 12px;border:0;white-space:pre}
 .mp-highlight{position:absolute;inset:0;pointer-events:none;z-index:1;overflow:hidden;color:var(--dsw-alias-fg,#1e1e1e);background:var(--dsw-alias-bg-layer-1,#fff)}
